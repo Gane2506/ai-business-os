@@ -1,0 +1,22 @@
+# Dockerfile-specific allowlist; overrides the source checkout's ignore file.
+*
+!apps/
+!packages/
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.json
+!tsconfig.build.json
+!.npmrc
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+**/.env*
+**/.git
+**/.DS_Store
+**/*.pem
+**/*.key
+**/*.keystore
+**/*.jks
+# Keep licenses and canonical agent skills used by frontend prebuild.

@@ -1,0 +1,54 @@
+{
+  "region": "ca-central-1",
+  "recipient": "ganesh@connectxmedia.com",
+  "kind": "infrastructure_smoke_test",
+  "applicationIntegrationTest": false,
+  "deliveryVerified": false,
+  "tests": [
+    {
+      "stream": "AUTH",
+      "from": "test@auth.connectxmedia.com",
+      "configurationSet": "ses-auth",
+      "state": "accepted",
+      "attemptedAt": "2026-10-12T03:18:05.510Z",
+      "messageId": "010d01a12e1e13f6-5d217de8-f8e4-409a-a9d0-a51dcbe53c03-000000",
+      "acceptedAt": "2026-10-12T03:18:05.691Z"
+    },
+    {
+      "stream": "TRANSACTIONAL",
+      "from": "test@tx.connectxmedia.com",
+      "configurationSet": "ses-transactional",
+      "state": "accepted",
+      "attemptedAt": "2026-10-12T03:18:06.898Z",
+      "messageId": "010d01a12e1e1963-375d111e-b9bb-4b29-91be-d2ee6fbc176d-000000",
+      "acceptedAt": "2026-10-12T03:18:07.110Z"
+    },
+    {
+      "stream": "COMMUNICATION",
+      "from": "test@mail.connectxmedia.com",
+      "configurationSet": "ses-communication",
+      "state": "accepted",
+      "attemptedAt": "2026-10-12T03:18:08.314Z",
+      "messageId": "010d01a12e1e1ef1-5d649000-64be-4049-b254-bb8d2ae16c10-000000",
+      "acceptedAt": "2026-10-12T03:18:08.498Z"
+    },
+    {
+      "stream": "MARKETING",
+      "from": "test@news.connectxmedia.com",
+      "configurationSet": "ses-marketing",
+      "state": "accepted",
+      "attemptedAt": "2026-10-12T03:18:09.708Z",
+      "messageId": "010d01a12e1e245b-46f85bbf-a6f8-4b72-b089-4243be6e8082-000000",
+      "acceptedAt": "2026-10-12T03:18:09.887Z"
+    },
+    {
+      "stream": "PROMOTIONAL",
+      "from": "test@offers.connectxmedia.com",
+      "configurationSet": "ses-promotional",
+      "state": "accepted",
+      "attemptedAt": "2026-10-12T03:18:11.092Z",
+      "messageId": "010d01a12e1e29ce-e84b438b-a32d-44eb-8aac-b19f6e53086b-000000",
+      "acceptedAt": "2026-10-12T03:18:11.286Z"
+    }
+  ]
+}

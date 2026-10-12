@@ -1,0 +1,214 @@
+{
+  "status": "dns_configured_deployment_pending",
+  "target": {
+    "environment": "staging",
+    "host": "212.56.40.67",
+    "cpu_cores": 8,
+    "ram_gib": 23,
+    "disk_gib": 388,
+    "existing_services": [
+      "npm",
+      "connectxmedia",
+      "rdpv-web",
+      "critical-crew",
+      "critical-crew-voice"
+    ],
+    "reserved_ports": [
+      22,
+      80,
+      81,
+      443,
+      853,
+      7880,
+      7881
+    ],
+    "ssh_alias": "contabo",
+    "available_disk_gib": 357,
+    "docker_version": "29.1.2",
+    "compose_version": "5.0.0",
+    "architecture": "x86_64"
+  },
+  "domains": {
+    "twenty": "os.connectxmedia.com",
+    "ringee_app": "calls.connectxmedia.com",
+    "ringee_api": "calls-api.connectxmedia.com",
+    "mautic": "marketing.connectxmedia.com"
+  },
+  "providers": {
+    "telephony": "telnyx",
+    "email_delivery": "aws-ses",
+    "identity": "better-auth",
+    "object_storage": "",
+    "identity_repository": "https://github.com/better-auth/better-auth",
+    "payments": "stripe",
+    "whatsapp": "enabled",
+    "ai": "openrouter"
+  },
+  "operations": {
+    "secret_store_reference": "/opt/ai-business-os/secrets/ringee-crypto.env",
+    "backup_destination_reference": "",
+    "recording_retention_days": null,
+    "transcript_retention_days": null,
+    "isolated_client_count": null,
+    "test_recipient_reference": "",
+    "crypto_secrets_status": "generated_on_target_mode_0600",
+    "secret_manager": {
+      "provider": "bitwarden-secrets-manager",
+      "hosting": "bitwarden-cloud",
+      "server_url": "https://vault.bitwarden.com",
+      "status": "contabo_connection_verified",
+      "project_name": "AI Business OS",
+      "runtime_access": "project-scoped read-only machine account",
+      "local_crypto_bootstrap_reference": "/opt/ai-business-os/secrets/ringee-crypto.env",
+      "enterprise_license_available": false,
+      "plan": "free",
+      "region": "US",
+      "organization_name": "Connect X Media",
+      "organization_id": "baf6429a-2db2-4345-9571-b4e10007420a",
+      "project_id": "9bb6c2fe-9e20-4f09-a68d-b4e1000759ee",
+      "machine_account_name": "contabo-ai-business-os",
+      "machine_account_id": "cd9c26c2-84c5-42ff-9a05-b4e100078be2",
+      "project_permission": "Can read",
+      "uploaded_secret_count": 6,
+      "token_name": "contabo-runtime",
+      "token_expiry": "Never",
+      "token_status": "Active",
+      "token_installed_on_target": true,
+      "lost_token_revoked": true,
+      "bootstrap_token_file": "/opt/ai-business-os/secrets/bitwarden-runtime-token",
+      "cli_image": "ghcr.io/bitwarden/bws@sha256:3927158c53ac5a17d6cbe59fc3e1353e426f168bf246dbfe3668f6de5eaa107f",
+      "cli_version": "2.1.0",
+      "authentication_verified": true,
+      "verified_secrets": [
+        {
+          "key": "AWS_ACCESS_KEY_ID",
+          "value_present": true
+        },
+        {
+          "key": "AWS_SECRET_ACCESS_KEY",
+          "value_present": true
+        },
+        {
+          "key": "OPENROUTER_API_KEY",
+          "value_present": true
+        },
+        {
+          "key": "STRIPE_SECRET_KEY",
+          "value_present": true
+        },
+        {
+          "key": "STRIPE_WEBHOOK_SECRET",
+          "value_present": true
+        },
+        {
+          "key": "TELNYX_API_KEY",
+          "value_present": true
+        }
+      ],
+      "inventory_status": "names_and_presence_checked_no_values_recorded"
+    }
+  },
+  "dns": {
+    "provider": "cloudflare",
+    "zone_name": "connectxmedia.com",
+    "zone_id": "d8416a7139c364daa395a11a48fa5a6f",
+    "account_id": "506b36333db52726a9467c0b52be0b04",
+    "origin_status": "user_confirmed",
+    "records_created": true,
+    "origin_ipv4": "212.56.40.67",
+    "verified_on": "2026-10-11",
+    "proxied": true,
+    "record_ids": {
+      "os.connectxmedia.com": "e9e2defecf550e220c612cc1be0392bf",
+      "calls.connectxmedia.com": "e1e791d4752de8fca8186abf3c89ca55",
+      "calls-api.connectxmedia.com": "95b2841889f57b69f569024bdc74ffd5",
+      "marketing.connectxmedia.com": "d84d2e591ba8d424bf3782b0c67d834e"
+    }
+  },
+  "reverse_proxy": {
+    "provider": "nginx_proxy_manager",
+    "admin_url": "http://212.56.40.67:81/",
+    "admin_status": "authenticated_verified",
+    "proxy_hosts_status": "pending_application_upstreams",
+    "existing_hosts": [
+      {
+        "domains": [
+          "connectxmedia.com",
+          "www.connectxmedia.com"
+        ],
+        "upstream": "http://connectxmedia:3000"
+      },
+      {
+        "domains": [
+          "hermes.connectxmedia.com"
+        ],
+        "upstream": "http://172.18.0.1:9119"
+      },
+      {
+        "domains": [
+          "rdpvsolutions.ca",
+          "www.rdpvsolutions.ca"
+        ],
+        "upstream": "http://rdpv-web:3000"
+      }
+    ],
+    "docker_network": "web"
+  },
+  "stripe_webhook": {
+    "status": "prepared_awaiting_action_time_confirmation",
+    "account_id": "acct_1T6eRBJDgpkmta6L",
+    "livemode": true,
+    "url": "https://calls-api.connectxmedia.com/api/stripe/webhook",
+    "payload_style": "snapshot",
+    "api_version": "2026-02-25.clover",
+    "name": "AI Business OS - Ringee billing",
+    "events": [
+      "checkout.session.completed",
+      "customer.subscription.created",
+      "customer.subscription.deleted",
+      "invoice.payment_succeeded",
+      "invoice.payment_failed",
+      "payment_intent.succeeded",
+      "payment_intent.payment_failed",
+      "setup_intent.succeeded",
+      "setup_intent.setup_failed"
+    ],
+    "secret_key": "STRIPE_WEBHOOK_SECRET",
+    "delivery_verified": false
+  },
+  "ses": {
+    "region": "ca-central-1",
+    "test_recipient": "ganesh@connectxmedia.com",
+    "aws_credentials_present": true,
+    "account_check": "passed",
+    "required_read_permission": "ses:GetAccount",
+    "live_test_emails_sent": 6,
+    "production_access": false,
+    "sending_enabled": true,
+    "max_daily_send": 200,
+    "max_send_rate": 1,
+    "identities_existing": 6,
+    "provisioning_status": "identities_verified",
+    "configuration_sets_existing": 6,
+    "dns_records_created": 36,
+    "existing_dns_preserved": true,
+    "cloudflare_surface": "authenticated_cloudflare_connector",
+    "feedback_configured": false,
+    "outreach_enabled_by_application_policy": false,
+    "test_recipient_verified": true,
+    "test_status": "accepted_by_ses_delivery_not_yet_confirmed",
+    "sender_local_part": "noreply",
+    "sender_addresses": {
+      "AUTH": "noreply@auth.connectxmedia.com",
+      "TRANSACTIONAL": "noreply@tx.connectxmedia.com",
+      "COMMUNICATION": "noreply@mail.connectxmedia.com",
+      "MARKETING": "noreply@news.connectxmedia.com",
+      "PROMOTIONAL": "noreply@offers.connectxmedia.com",
+      "OUTREACH": "noreply@outreach.connectxmedia.com"
+    },
+    "sender_policy_status": "noreply_auth_confirmation_accepted",
+    "test_sends_authorized": false,
+    "test_sends_policy": "User prohibits further test emails",
+    "production_application_sending_enabled": false
+  }
+}

@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  repository:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: deploy/email/package-lock.json
+      - name: Validate repository metadata and patch fingerprints
+        run: python3 scripts/check_repository.py
+      - name: Test Bitwarden environment filtering
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - name: Install email test dependencies
+        working-directory: deploy/email
+        run: npm ci --ignore-scripts
+      - name: Test email provisioning and safety logic
+        working-directory: deploy/email
+        run: npm test
+
+  source-audit:
+    needs: repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Recreate locked upstream checkouts
+        run: python3 scripts/checkout_sources.py
+      - name: Verify source pins, origin URLs, and license fingerprints
+        run: python3 scripts/check_sources.py
+      - name: Verify source evidence links and anchors
+        run: python3 scripts/check_evidence.py
+      - name: Apply every registered patch in an isolated workspace
+        run: |
+          python3 - <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          with open('config/component-patches.json', encoding='utf-8') as file:
+              components = json.load(file)['components']
+          for name in components:
+              subprocess.run([sys.executable, 'scripts/prepare_component.py', name], check=True)
+          PY

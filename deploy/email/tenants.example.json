@@ -1,0 +1,12 @@
+{
+  "region": "",
+  "snsTopicArn": "",
+  "tenants": [
+    {
+      "tenantId": "connectxmedia",
+      "rootDomain": "connectxmedia.com",
+      "zoneId": "d8416a7139c364daa395a11a48fa5a6f",
+      "outreachEnabled": false
+    }
+  ]
+}

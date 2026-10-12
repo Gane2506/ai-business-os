@@ -1,0 +1,8 @@
+{
+  "status": "rejected",
+  "from": "noreply@auth.connectxmedia.com",
+  "to": "ganesh@connectxmedia.com",
+  "attemptedAt": "2026-10-12T03:21:47.030Z",
+  "errorType": "AccessDeniedException",
+  "httpStatus": 403
+}

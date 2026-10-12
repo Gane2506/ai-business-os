@@ -1,0 +1,5 @@
+{
+  "testSendingEnabled": false,
+  "reason": "The user forbids all further test sends. Continuing implementation does not authorize sending.",
+  "authorization": null
+}

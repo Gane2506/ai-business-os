@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "components": {
+    "ringee-app": {
+      "base_commit": "b04a4b889a9c827e76f64574f6f3b2f1c5f79241",
+      "branch": "codex/business-os-foundation",
+      "patches": [
+        {
+          "path": "patches/ringee-app/0003-email-production-integration.patch",
+          "sha256": "29c819cc488b70b069f85222a8e738013327abf5260d9394aaed0f2294363f6f",
+          "purpose": "Cumulative foundation plus SESv2 central sender, tenant email persistence and signed feedback integration; production rollout remains pending"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "region": "ca-central-1",
+  "testRecipient": "ganesh@connectxmedia.com",
+  "accountCheck": "passed",
+  "productionAccess": false,
+  "sendingEnabled": true,
+  "quota": {
+    "Max24HourSend": 200,
+    "MaxSendRate": 1,
+    "SentLast24Hours": 0
+  },
+  "identities": [
+    {
+      "domain": "auth.connectxmedia.com",
+      "exists": false
+    },
+    {
+      "domain": "tx.connectxmedia.com",
+      "exists": false
+    },
+    {
+      "domain": "mail.connectxmedia.com",
+      "exists": false
+    },
+    {
+      "domain": "news.connectxmedia.com",
+      "exists": false
+    },
+    {
+      "domain": "offers.connectxmedia.com",
+      "exists": false
+    },
+    {
+      "domain": "outreach.connectxmedia.com",
+      "exists": false
+    }
+  ],
+  "testEmailsSent": 0
+}

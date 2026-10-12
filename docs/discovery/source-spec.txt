@@ -1,0 +1,174 @@
+AI Business Operating System
+Master Architecture, Product Scope & Codex Implementation Specification
+Internal production system • Contabo VPS • Open-source-first • October 2026
+Purpose: define the agreed product scope, architecture, integration boundaries, implementation priorities, verification gates, and delivery criteria for building an internal AI-powered business operating system. This specification intentionally favors reuse of mature open-source components over rebuilding capabilities.
+1. Executive Architecture Decision
+Twenty CRM is the authoritative system of record for customers, companies, opportunities, pipelines, business objects, permissions, workflows, and cross-functional business state.
+Ringee is the calling subsystem and must be evaluated as three coordinated repositories/components: Ringee App, Ringee Voice, and Ringee Mobile.
+Ringee's existing telephony, AI voice, and calling orchestration capabilities must be inspected and reused first. Do not build a parallel voice stack unless a verified gap requires it.
+Mautic is the marketing automation subsystem for segmentation, journeys, newsletters, analytics, and future guarded AI-driven campaign operations.
+AI orchestration is layered: use native Twenty and Ringee orchestration where appropriate; add a cross-system orchestrator only for capabilities that cannot be cleanly expressed in the native systems.
+n8n is optional, not a mandatory core dependency. Use it only when native workflows/agents cannot satisfy an integration cleanly.
+2. Guiding Principles
+Reuse before rebuild:  Fork, integrate, configure, or extend existing open-source code before creating a new service.
+One source of truth:  Avoid competing customer databases. Twenty owns canonical customer/business state; operational subsystems may retain the minimum state they require.
+Verify source, not marketing:  Commercial website claims are discovery signals only. Codex must confirm self-hosted source-code support, configuration, licensing, and runtime behavior before relying on a feature.
+Modular boundaries:  Twenty, Ringee, Mautic, telephony, AI providers, email, calendar, invoicing, and analytics must remain replaceable through documented APIs/events.
+Least-cost intelligence:  Route tasks to the least expensive model that meets quality and latency requirements; reserve premium models for complex reasoning.
+Human control where consequential:  High-impact external actions such as ad spend, sensitive communications, destructive changes, and payment operations require configurable guardrails/approvals.
+3. Component Responsibility Matrix
+Component Primary responsibility Authoritative data Implementation stance Twenty CRM CRM, pipelines, objects, RBAC, workflows, cross-business AI agents Customer/company/opportunity/business state Core; system of record Ringee App Calling operations UI, campaigns/sessions, call-centric workflows Operational calling state only Fork/integrate Ringee Voice Telephony/voice foundation and existing voice capabilities Voice/telephony runtime state Reuse first; inspect deeply Ringee Mobile Mobile calling/companion experience Local/mobile operational state Fork/customize; Android APK deliverable Mautic Email marketing, segmentation, journeys, campaign analytics Marketing execution state Core marketing subsystem Cross-system orchestrator Only cross-domain coordination not covered natively Minimal orchestration state Build only if verified need n8n Edge integrations/automation helper None authoritative Optional
+4. Ringee Subsystem - Confirmed Scope
+Ringee is not a single-repository decision. Codex must treat the following repositories as a coordinated subsystem and map their APIs, shared schemas, authentication, deployment topology, dependencies, and version compatibility.
+Ringee App:  Primary web/calling application. Inspect contacts/leads, campaigns, sessions, dispositions, notes, callbacks, recordings, transcripts, analytics, integrations, AI features, and administration.
+Ringee Voice:  Primary candidate for the telephony/voice engine. Inspect the Asterisk relationship/fork changes, SIP/provider integration, call routing, recording, media handling, AI voice hooks, concurrency, scaling, and observability.
+Ringee Mobile:  Mobile companion. Customize branding and backend endpoints; preserve human business calling. Produce an installable Android APK for internal use. Keep an AAB path available for future Play Store distribution.
+5. Ringee Voice & AI - Build-vs-Reuse Gate
+Before introducing LiveKit, a separate STT service, TTS service, custom media bridge, or a new call orchestrator, Codex must perform a capability audit of Ringee.
+Determine which autonomous AI voice-agent features exist in the self-hosted source versus only in Ringee's hosted/commercial service.
+Verify outbound and inbound autonomous calling separately.
+Verify configurable STT, LLM, TTS, knowledge/context retrieval, interruption/barge-in, tool calling, appointment booking, structured outcomes, summaries, transcripts, recordings, and call transfer/escalation.
+Verify bring-your-own model/provider keys and whether provider selection can be controlled per workspace, campaign, or agent.
+Verify MCP/API surfaces for starting calls, creating campaigns/sessions, retrieving outcomes/transcripts, and scheduling follow-ups.
+If Ringee already implements a capability satisfactorily, reuse it. If partially implemented, extend it. Only build a replacement when the gap is documented with evidence.
+6. CRM Data Ownership & Synchronization
+Twenty remains the canonical CRM. Ringee may maintain the operational records necessary for calls, but it must not become a second independent master customer database.
+Twenty -> Ringee: contact identity, phone numbers, company/account context, campaign eligibility, owner, consent/do-not-call status, relevant CRM fields, and selected knowledge/context.
+Ringee -> Twenty: call attempts, timestamps, agent/campaign, disposition, transcript reference, recording reference, summary, sentiment/structured outcome where available, callback, meeting/appointment, next action, and failure reason.
+Use stable cross-system IDs and idempotent synchronization.
+Define conflict rules. Canonical CRM fields are resolved in Twenty unless a field is explicitly delegated.
+Avoid copying sensitive data unless required by the downstream function.
+7. Pipelines & Customer Lifecycle
+Twenty must support configurable pipelines/stages for sales and service processes. Ringee calling activity attaches to the same customer/opportunity history rather than creating a separate lifecycle.
+Lead -> discovery -> audit/qualification -> proposal -> follow-up -> closed won/lost, with configurable/skippable stages.
+Separate pipelines/workflows may be created for website projects, retainer clients, SaaS sales, or future business units.
+Inbound and outbound calling must resolve to the same customer identity and timeline.
+AI-generated next actions must be visible, attributable, auditable, and permission-controlled.
+8. Multi-Workspace / Tenant Separation
+Multiple workspaces/clients/campaigns are a mandatory product requirement. Do not immediately build custom tenancy into Ringee; first audit its native organization/workspace/team/campaign isolation.
+Map native Ringee organization/workspace capabilities and data boundaries.
+Map Twenty workspace/permission boundaries.
+Ensure contacts, campaigns, phone numbers, recordings, transcripts, knowledge, credentials, AI agents, and analytics can be isolated appropriately.
+If native isolation is insufficient, design the smallest extension that preserves upstream compatibility.
+9. RBAC and AI-Agent Identities
+RBAC must apply across CRM, calling, campaigns, recordings, transcripts, marketing, invoicing, integrations, secrets, AI configuration, and administrative actions.
+AI agents are first-class identities. They receive explicit roles/scopes just like users or service accounts.
+An AI agent may receive broad/full access only when deliberately granted; default to least privilege.
+All AI actions must carry actor identity, workspace, tool/action, timestamp, target object, result, and approval context where applicable.
+Secrets/API keys must never be exposed in ordinary logs or model prompts.
+10. AI Orchestration Model
+Use orchestration closest to the domain. Ringee handles call-domain orchestration when its native implementation is sufficient. Twenty handles CRM/business workflows and agents when sufficient. A higher-level orchestrator coordinates cross-domain goals only where needed.
+Example: Twenty identifies overdue sales follow-up -> Ringee initiates approved calling campaign -> Ringee returns outcome -> Twenty updates opportunity -> Mautic adjusts nurture segment.
+Cross-system orchestration must use APIs/events/MCP rather than direct database coupling wherever practical.
+Agents need tool registries, scoped credentials, retry/error policies, budgets, rate limits, and human approval gates.
+Store concise task state and structured outputs rather than unnecessarily retaining entire model conversations.
+11. Mautic Marketing Scope
+Visual email/newsletter authoring.
+Segments and dynamic audience membership.
+Drip/nurture journeys and event-driven campaigns.
+Delivery through Amazon SES or another pluggable provider.
+Open/click/bounce/unsubscribe analytics and campaign performance.
+CRM-triggered enrollment and outcome synchronization with Twenty.
+Future AI-assisted content, audience, and campaign optimization.
+Future ad-platform automation must include spend limits, account/workspace isolation, approval thresholds, and rollback/stop controls.
+12. Inbound & Outbound Calling Requirements
+Human outbound calls from web and mobile.
+Human inbound call handling where supported by the telephony configuration.
+Autonomous outbound AI calls where self-hosted Ringee supports them.
+Autonomous inbound AI calls if verified; otherwise document the missing layer and implement only what is necessary.
+Campaign lists, schedules, retries, time-zone/contact-window rules, suppression lists, dispositions, callbacks, transfers/escalations, recordings, transcripts, summaries, and analytics.
+Shared customer history across inbound/outbound and human/AI interactions.
+13. Ringee Mobile Deliverable
+Fork/customize the mobile codebase rather than writing a new app unless source quality makes reuse impractical.
+Connect to the internal/self-hosted backend and authentication model.
+Support business calling, contacts, call history, notes/outcomes, callbacks, and other capabilities already supported by the upstream app after verification.
+Add AI monitoring/management features only after determining what the upstream mobile app and APIs expose.
+Produce a signed or appropriately installable internal Android APK and documented build steps. Keep signing secrets outside source control.
+Document the path to an Android App Bundle (AAB) for future store distribution.
+14. Email, Calendar, Invoicing & Business Operations
+Provide integration points for business email and calendars so agents/workflows can draft, schedule, follow up, and coordinate meetings subject to permissions.
+Support invoicing/payment workflows through pluggable providers (for example Stripe or accounting integrations) without making one provider the architectural core.
+Customer timelines should surface relevant communications, meetings, invoices/payment state, marketing interactions, and calls.
+External actions must be attributable and auditable; sensitive actions can require approval.
+15. MCP, APIs & Integration Contract
+Inventory every existing API, webhook, MCP server/tool, event bus, and integration surface in Twenty, Ringee, and Mautic.
+Prefer supported extension points over database writes or invasive forks.
+Create a canonical internal event vocabulary for customer.updated, opportunity.stage_changed, call.completed, call.failed, meeting.booked, campaign.enrolled, invoice.overdue, etc.
+Implement idempotency keys, retries with backoff, dead-letter handling, correlation IDs, and observable failure states.
+Document authentication and authorization for every integration path.
+16. Deployment on Contabo
+Containerize services where practical and separate application, database, cache/queue, media/telephony, and reverse-proxy responsibilities.
+Use environment-specific secrets management; never commit credentials.
+TLS for all web/API endpoints; secure SIP/media configuration appropriate to the selected telephony providers.
+Persistent volumes and tested backup/restore for databases, configuration, recordings where retained, and critical application state.
+Health checks, structured logs, metrics, resource monitoring, restart policies, and alerting.
+Document ports, DNS/subdomain assumptions, firewall requirements, and deployment order.
+17. Security, Privacy & Compliance Engineering
+Consent, do-not-call, unsubscribe, retention, and recording controls must be configurable by jurisdiction/business policy.
+Encrypt sensitive data in transit and at rest where appropriate.
+Use short-lived/scoped credentials where possible.
+Audit privileged user and agent actions.
+Provide configurable recording/transcript retention and deletion.
+Do not assume legal permission to record or auto-dial; deployment configuration must support applicable local requirements.
+18. Cost Control & Model Routing
+Track cost per call, minute, transcription, synthesis, LLM request, campaign, workspace, and agent where data is available.
+Support model/provider abstraction so lower-cost models can handle classification, summarization, extraction, and routine responses.
+Use premium reasoning models only for tasks that materially benefit.
+Cache stable knowledge/context and avoid repeatedly sending large CRM histories.
+Set per-agent/workspace budgets and rate limits.
+19. Licensing & Fork Management
+Licenses must be verified from each repository at the exact pinned revision before modification or redistribution. Do not assume that Ringee App, Voice, and Mobile share identical licensing.
+Record repository URL, upstream owner, default branch, pinned commit/tag, license file, SPDX identifier if available, and obligations.
+Maintain upstream remotes and document the update/rebase strategy.
+Keep custom changes isolated where practical to reduce merge conflicts.
+Track notices/source-disclosure obligations for any distributed APK or other binaries.
+Perform the same license inventory for Twenty, Mautic, and added dependencies.
+20. Codex Discovery Phase - Mandatory Before Major Coding
+Clone/fork or otherwise establish controlled working copies of the three Ringee repositories, Twenty, and Mautic as applicable.
+Generate dependency and service maps.
+Identify authentication, workspace, RBAC, API, webhook, MCP, AI, telephony, mobile, database, and deployment modules.
+Build a feature matrix with statuses: confirmed in self-hosted source / hosted-only / partial / absent / unknown.
+Document all gaps against this specification.
+Propose the minimum-change implementation plan, prioritizing configuration and extensions before forks and new services.
+Do not begin a replacement voice/orchestration implementation until the Ringee capability audit is complete.
+21. Implementation Phases
+Phase 0 - Audit & pin:  Licenses, repositories, versions, deployment dependencies, capability matrix, architecture decision records.
+Phase 1 - Core platform:  Deploy Twenty, Ringee subsystem, Mautic, databases/queues, reverse proxy, secrets, backups, observability.
+Phase 2 - Identity & data:  SSO/auth where applicable, workspace model, RBAC, canonical IDs, Twenty-Ringee synchronization.
+Phase 3 - Human calling:  Web/mobile business calling, customer history, outcomes, recordings/transcripts as supported.
+Phase 4 - AI calling:  Enable/extend Ringee native AI voice and calling orchestration; add only verified missing pieces.
+Phase 5 - Marketing:  Mautic segmentation, email journeys, SES/provider integration, CRM sync and analytics.
+Phase 6 - Cross-system agents:  Twenty/business agents, MCP/tool registry, cross-domain orchestration, approvals and budgets.
+Phase 7 - Business ops:  Email/calendar/invoicing integrations, richer dashboards, automated follow-up.
+Phase 8 - Advanced autonomy:  Guarded ad operations, optimization loops, additional AI agents, optional customer-facing expansion.
+22. Acceptance Criteria
+A customer created/updated in Twenty can be made available to Ringee without duplicate manual entry.
+A human can make a business call from supported Ringee interfaces and the result is reflected in the canonical customer timeline.
+An AI call can be initiated through the approved orchestration path if the self-hosted capability is verified; its structured outcome returns to Twenty.
+Inbound/outbound activity resolves to a common customer identity.
+Recordings/transcripts are permission-controlled and retention-configurable.
+Workspaces isolate customer data, campaigns, credentials, agents, recordings/transcripts, and analytics to the designed boundary.
+AI agents cannot exceed assigned permissions or configured budgets.
+Mautic can enroll CRM contacts in a journey and return meaningful engagement state.
+Android APK builds reproducibly from documented source/configuration and connects to the internal backend.
+Backup/restore, restart/recovery, logging, metrics, and basic security controls are tested.
+No major custom service duplicates a capability already verified as satisfactory in the upstream components without an explicit architecture decision record.
+23. Explicit Non-Goals for Initial Release
+Building a new CRM from scratch.
+Building a new PBX/telephony engine when Ringee Voice satisfies the requirement.
+Building a new mobile app from zero when Ringee Mobile is reusable.
+Building a parallel calling orchestrator when Ringee already satisfies the use case.
+Making n8n a mandatory dependency.
+Launching a public multi-tenant SaaS product in the first internal release.
+Unsupervised high-risk spending or destructive actions without configurable controls.
+24. Open Verification Items
+These are not product indecision; they are source-code verification tasks that determine the smallest implementation.
+Exact self-hosted Ringee AI voice feature set and hosted-only differences.
+Exact Ringee Voice modifications relative to upstream Asterisk and how Ringee App integrates with it.
+Native Ringee organization/workspace isolation and whether it meets the mandatory multi-workspace requirement.
+Ringee Mobile API compatibility with the chosen self-hosted deployment and authentication.
+Native MCP/API operations exposed by the self-hosted Ringee build.
+Per-repository licenses and redistribution obligations, especially for customized mobile binaries.
+Which Twenty agent/workflow capabilities eliminate the need for an additional orchestrator or n8n.
+25. Final Direction to Codex
+Build this as an integrated operating system, not a collection of disconnected demos. Twenty owns business truth; Ringee owns calling execution; Mautic owns marketing execution. Reuse native AI, workflow, telephony, mobile, API, and MCP capabilities before adding infrastructure. Every new service must have a documented gap that justifies its existence.
