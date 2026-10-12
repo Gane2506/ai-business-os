@@ -58,3 +58,93 @@ jobs:
           for name in components:
               subprocess.run([sys.executable, 'scripts/prepare_component.py', name], check=True)
           PY
+
+  ringee-application:
+    needs: repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    services:
+      postgres:
+        # Matches Ringee's existing docker-compose.yml; this is a disposable CI database.
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ringee_ci
+          POSTGRES_PASSWORD: ringee_ci
+          POSTGRES_DB: ringee_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ringee_ci -d ringee_ci"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://ringee_ci:ringee_ci@127.0.0.1:5432/ringee_ci
+      EMAIL_SEND_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Recreate the pinned Ringee application and apply its current patch
+        run: |
+          python3 scripts/checkout_sources.py
+          python3 scripts/check_sources.py
+          python3 scripts/prepare_component.py ringee-app
+          python3 scripts/check_ringee_application.py
+      - name: Read Ringee's pinned pnpm version
+        id: package-manager
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+
+          package = json.loads(Path('workspaces/ringee-app/package.json').read_text())
+          print('version=' + package['packageManager'].removeprefix('pnpm@'))
+          PY
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ steps.package-manager.outputs.version }}
+          run_install: false
+      - name: Install Ringee application dependencies from its lockfile
+        working-directory: workspaces/ringee-app
+        run: >-
+          pnpm install --frozen-lockfile --ignore-scripts
+          --filter './apps/backend...'
+          --filter './apps/orchestrator...'
+          --filter './packages/platform...'
+          --filter './packages/services...'
+          --filter './packages/database...'
+      - name: Generate the Prisma client
+        working-directory: workspaces/ringee-app
+        run: packages/database/node_modules/.bin/prisma generate --schema packages/database/prisma/schema.prisma
+      - name: Test SES, feedback, and central email behavior with mocks
+        working-directory: workspaces/ringee-app
+        run: |
+          (cd packages/platform && ./node_modules/.bin/vitest run \
+            src/email/ses.provider.test.ts \
+            src/email/mautic-feedback.client.test.ts \
+            src/email/ses-feedback.test.ts \
+            src/email/sns-feedback.verifier.test.ts)
+          (cd packages/services && TS_NODE_PROJECT=tsconfig.json node \
+            --require ../../apps/backend/test/register-env.cjs \
+            --require ts-node/register \
+            --require tsconfig-paths/register \
+            --test src/services/email.service.spec.ts src/services/email-feedback.service.spec.ts)
+      - name: Type-check the backend application
+        working-directory: workspaces/ringee-app
+        run: apps/backend/node_modules/.bin/tsc --noEmit -p apps/backend/tsconfig.build.json
+      - name: Migrate the disposable database
+        working-directory: workspaces/ringee-app
+        run: packages/database/node_modules/.bin/prisma migrate deploy --schema packages/database/prisma/schema.prisma
+      - name: Check baseline and additive email SQL invariants
+        run: |
+          docker exec -i "${{ job.services.postgres.id }}" psql -v ON_ERROR_STOP=1 -U ringee_ci -d ringee_ci \
+            < workspaces/ringee-app/packages/database/prisma/tests/bootstrap-invariants.sql
+          docker exec -i "${{ job.services.postgres.id }}" psql -v ON_ERROR_STOP=1 -U ringee_ci -d ringee_ci \
+            < workspaces/ringee-app/packages/database/prisma/tests/email-invariants.sql

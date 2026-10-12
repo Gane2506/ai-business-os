@@ -124,7 +124,7 @@ final readonly class SesSubscriber implements EventSubscriberInterface
         $recipients = $payload['recipients'] ?? null;
         if (null === $expected || $expected !== ($payload['type'] ?? null) ||
             !in_array($domain, ['news.'.$this->rootDomain(), 'offers.'.$this->rootDomain()], true) ||
-            !is_array($recipients) || count($recipients) > 50) {
+            !is_array($recipients) || 0 === count($recipients) || count($recipients) > 50) {
             $event->setResponse(new JsonResponse(['error' => 'Invalid tenant feedback'], 400));
             $event->stopPropagation();
 
@@ -139,9 +139,10 @@ final readonly class SesSubscriber implements EventSubscriberInterface
             }
         }
         foreach ($recipients as $address) {
-            // Native DNC inserts/upserts are idempotent. No stat append or
-            // resubscribe is performed when a signed callback is retried.
-            $this->callback->addFailureByAddress($address, 'SES '.$expected, DoNotContact::BOUNCED);
+            // Native DNC updates are idempotent and preserve an existing
+            // unsubscribe. A complaint is an unsubscribe, not a failed delivery.
+            $reason = 'Complaint' === $expected ? DoNotContact::UNSUBSCRIBED : DoNotContact::BOUNCED;
+            $this->callback->addFailureByAddress($address, 'SES '.$expected, $reason);
         }
         $event->setResponse(new JsonResponse(['received' => true]));
         $event->stopPropagation();

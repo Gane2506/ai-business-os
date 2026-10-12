@@ -1,14 +1,16 @@
 # Ringee implementation patches
 
-`0002-foundation-ses.patch` is the active cumulative patch based on commit
+`0003-email-production-integration.patch` is the active cumulative patch based on commit
 `b04a4b889a9c827e76f64574f6f3b2f1c5f79241`. The original upstream source remains
 under `upstream/ringee-app`; the modified checkout is `workspaces/ringee-app`.
 Ringee's AGPL license is preserved in this directory. Deployment and source-offer
 requirements remain part of release preparation.
 
-`0001-foundation.patch` is retained as the earlier foundation snapshot. The active
-0002 patch supersedes it; do not apply both. It also replaces the Resend transport
-with AWS SES and configured sender/support identities. Better Auth is still pending.
+`0001-foundation.patch` and `0002-foundation-ses.patch` are retained historical
+snapshots. The active 0003 patch supersedes both; apply only the patch registered
+in the manifest. It adds SES v2, tenant-aware noreply sending, email preferences
+and suppression, an additive migration, and signed SNS feedback handling.
+Better Auth and production rollout are still pending.
 
 The patch disables UUID-based MCP authority, updates supported-client guidance
 and meaningful tests, and adds a tracked fresh-install Prisma baseline with

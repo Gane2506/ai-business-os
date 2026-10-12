@@ -58,6 +58,6 @@ reviewer was not dispatched; parent review was performed inline.
 
 ## Later provider changes
 
-The active cumulative patch is now `0002-foundation-ses.patch`, which preserves
+The active cumulative patch is now `0003-email-production-integration.patch`, which preserves
 these foundation fixes and adds AWS SES. See [provider migration status](provider-migration-status.md).
 The original 0001 snapshot remains available. Better Auth is pending.
