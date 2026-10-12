@@ -7798,10 +7798,10 @@ index 416b829..0000000
 -}
 diff --git a/packages/platform/src/email/ses-feedback.test.ts b/packages/platform/src/email/ses-feedback.test.ts
 new file mode 100644
-index 0000000..66423c6
+index 0000000..e1512a2
 --- /dev/null
 +++ b/packages/platform/src/email/ses-feedback.test.ts
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,77 @@
 +import { describe, expect, it } from "vitest";
 +import { normalizeSesFeedback } from "./ses-feedback";
 +import type { SnsEnvelope } from "./sns-feedback.verifier";
@@ -7873,13 +7873,18 @@ index 0000000..66423c6
 +      "configuration set",
 +    );
 +  });
++  it("rejects a bounce with no affected recipients", () => {
++    const payload = event();
++    payload.bounce.bouncedRecipients = [];
++    expect(() => normalizeSesFeedback(envelope(payload))).toThrow("recipients");
++  });
 +});
 diff --git a/packages/platform/src/email/ses-feedback.ts b/packages/platform/src/email/ses-feedback.ts
 new file mode 100644
-index 0000000..9c5f3e6
+index 0000000..8b884ec
 --- /dev/null
 +++ b/packages/platform/src/email/ses-feedback.ts
-@@ -0,0 +1,132 @@
+@@ -0,0 +1,133 @@
 +import { SnsEnvelope } from "./sns-feedback.verifier";
 +
 +export interface EmailFeedback {
@@ -7987,6 +7992,7 @@ index 0000000..9c5f3e6
 +  }
 +  if (
 +    !Array.isArray(recipients) ||
++    recipients.length === 0 ||
 +    recipients.length > 50 ||
 +    recipients.some(
 +      (email) =>
@@ -9386,10 +9392,11 @@ index 2594501..3ac2976 100644
  }
 diff --git a/packages/services/src/services/email-feedback.service.spec.ts b/packages/services/src/services/email-feedback.service.spec.ts
 new file mode 100644
-index 0000000..a040ce4
+index 0000000..ca2b3d0
 --- /dev/null
 +++ b/packages/services/src/services/email-feedback.service.spec.ts
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,158 @@
++/// <reference types="node" />
 +import assert from "node:assert/strict";
 +import { describe, it } from "node:test";
 +import { createHash } from "node:crypto";
