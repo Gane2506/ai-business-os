@@ -10990,10 +10990,10 @@ index 3c8ceaa..d4269eb 100644
          model,
 diff --git a/packages/platform/src/ai-agents/providers/openrouter.provider.test.ts b/packages/platform/src/ai-agents/providers/openrouter.provider.test.ts
 new file mode 100644
-index 0000000..1ca495d
+index 0000000..5b7b038
 --- /dev/null
 +++ b/packages/platform/src/ai-agents/providers/openrouter.provider.test.ts
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,116 @@
 +import { beforeEach, describe, expect, it, vi } from "vitest";
 +
 +const mock = vi.hoisted(() => ({
@@ -11086,7 +11086,8 @@ index 0000000..1ca495d
 +    mock.config.OPENROUTER_API_KEY = "router-test-key";
 +    mock.config.OPENROUTER_SUMMARY_MODEL = "unknown/unpriced";
 +    await expect(new OpenRouterProvider().summarize({ system: "x", messages: [] }))
-+      .rejects.toThrow(/no Ringee token pricing/);
++      .rejects.toThrow(/no reviewed Ringee token pricing/);
++    expect(mock.requests).toHaveLength(0);
 +  });
 +
 +  it("retains explicit OpenAI selection", async () => {
