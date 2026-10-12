@@ -1,0 +1,147 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenySendingOutsideChosenRegion",
+      "Effect": "Deny",
+      "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail",
+        "ses:SendBulkEmail"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": "ca-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "DenyAllOtherSenderAddresses",
+      "Effect": "Deny",
+      "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail",
+        "ses:SendBulkEmail"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "ses:FromAddress": [
+            "noreply@auth.connectxmedia.com",
+            "noreply@tx.connectxmedia.com",
+            "noreply@mail.connectxmedia.com",
+            "noreply@news.connectxmedia.com",
+            "noreply@offers.connectxmedia.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "SendAUTH",
+      "Effect": "Allow",
+      "Action": "ses:SendEmail",
+      "Resource": [
+        "arn:aws:ses:ca-central-1:123456789012:identity/auth.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:123456789012:configuration-set/ses-auth"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1",
+          "ses:FromAddress": "noreply@auth.connectxmedia.com"
+        }
+      }
+    },
+    {
+      "Sid": "SendTRANSACTIONAL",
+      "Effect": "Allow",
+      "Action": "ses:SendEmail",
+      "Resource": [
+        "arn:aws:ses:ca-central-1:123456789012:identity/tx.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:123456789012:configuration-set/ses-transactional"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1",
+          "ses:FromAddress": "noreply@tx.connectxmedia.com"
+        }
+      }
+    },
+    {
+      "Sid": "SendCOMMUNICATION",
+      "Effect": "Allow",
+      "Action": "ses:SendEmail",
+      "Resource": [
+        "arn:aws:ses:ca-central-1:123456789012:identity/mail.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:123456789012:configuration-set/ses-communication"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1",
+          "ses:FromAddress": "noreply@mail.connectxmedia.com"
+        }
+      }
+    },
+    {
+      "Sid": "SendMARKETING",
+      "Effect": "Allow",
+      "Action": "ses:SendEmail",
+      "Resource": [
+        "arn:aws:ses:ca-central-1:123456789012:identity/news.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:123456789012:configuration-set/ses-marketing"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1",
+          "ses:FromAddress": "noreply@news.connectxmedia.com"
+        }
+      }
+    },
+    {
+      "Sid": "SendPROMOTIONAL",
+      "Effect": "Allow",
+      "Action": "ses:SendEmail",
+      "Resource": [
+        "arn:aws:ses:ca-central-1:123456789012:identity/offers.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:123456789012:configuration-set/ses-promotional"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1",
+          "ses:FromAddress": "noreply@offers.connectxmedia.com"
+        }
+      }
+    },
+    {
+      "Sid": "ReadAccountQuotaAndSuppression",
+      "Effect": "Allow",
+      "Action": [
+        "ses:GetAccount",
+        "ses:GetSuppressedDestination"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactSendingIdentities",
+      "Effect": "Allow",
+      "Action": "ses:GetEmailIdentity",
+      "Resource": [
+        "arn:aws:ses:ca-central-1:123456789012:identity/auth.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:123456789012:identity/tx.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:123456789012:identity/mail.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:123456789012:identity/news.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:123456789012:identity/offers.connectxmedia.com"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1"
+        }
+      }
+    }
+  ]
+}

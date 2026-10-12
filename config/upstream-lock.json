@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-10-11",
+  "repositories": [
+    {
+      "name": "ringee-app",
+      "path": "upstream/ringee-app",
+      "url": "https://github.com/ringee-io/ringee-app.git",
+      "default_branch": "main",
+      "commit": "b04a4b889a9c827e76f64574f6f3b2f1c5f79241",
+      "selection": "default branch snapshot for source audit; not approved production release",
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_sha256": {
+        "LICENSE": "86ee39c3c2b571f623e8289eb6f4e7a95ade10e58eb8d8c254b5b7dea8ad2936"
+      }
+    },
+    {
+      "name": "ringee-voice",
+      "path": "upstream/ringee-voice",
+      "url": "https://github.com/ringee-io/ringee-voice.git",
+      "default_branch": "master",
+      "commit": "050332665f8c9d535228808f7625b12129ddafe7",
+      "selection": "default branch snapshot for source audit; not approved production release",
+      "license_files": [
+        "LICENSE",
+        "COPYING"
+      ],
+      "license_sha256": {
+        "LICENSE": "cb2192ac6c46b57220ff67ff8f836007d9f38f1e9f37cf1ae9169256dbd5ac8c",
+        "COPYING": "82af40ed7f49c08685360811993d9396320842f021df828801d733e8fdc0312f"
+      }
+    },
+    {
+      "name": "ringee-mobile",
+      "path": "upstream/ringee-mobile",
+      "url": "https://github.com/ringee-io/ringee-mobile.git",
+      "default_branch": "main",
+      "commit": "2d098a1e5a7413fcdf8fde0157afa1864d8f443c",
+      "selection": "default branch snapshot for source audit; not approved production release",
+      "license_files": [],
+      "license_sha256": {}
+    },
+    {
+      "name": "twenty",
+      "path": "upstream/twenty",
+      "url": "https://github.com/twentyhq/twenty.git",
+      "default_branch": "main",
+      "commit": "444332cf51cb5e451b85d5b2f2b3e04156006d35",
+      "selection": "default branch snapshot for source audit; not approved production release",
+      "license_files": [
+        "LICENSE"
+      ],
+      "license_sha256": {
+        "LICENSE": "caece25ff05e7058a8fd98c34313757ed48d5e9304e0aeb7875d4b11de77bc01"
+      }
+    },
+    {
+      "name": "mautic",
+      "path": "upstream/mautic",
+      "url": "https://github.com/mautic/mautic.git",
+      "default_branch": "7.x",
+      "commit": "bc46b64883255608e5b14a41987c207de9535616",
+      "selection": "default branch snapshot for source audit; not approved production release",
+      "license_files": [
+        "LICENSE.txt"
+      ],
+      "license_sha256": {
+        "LICENSE.txt": "7f2d9f57ab32b85d31936b9fb6cdfd3fedbfa5cc099558a5bbd0feb65d76b5af"
+      }
+    }
+  ]
+}

@@ -1,0 +1,119 @@
+name: mautic-${TENANT_SLUG:?Set TENANT_SLUG in .env}
+
+services:
+  db:
+    image: ${MYSQL_IMAGE:?Set MYSQL_IMAGE in .env}
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env}
+      MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER in .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping --host=127.0.0.1 --user=root --password=\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      start_period: 30s
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    security_opt:
+      - no-new-privileges:true
+
+  mautic_web:
+    image: ${MAUTIC_IMAGE:?Set MAUTIC_IMAGE in .env}
+    restart: unless-stopped
+    environment:
+      DOCKER_MAUTIC_ROLE: mautic_web
+      DOCKER_MAUTIC_LOAD_TEST_DATA: "false"
+      MAUTIC_DB_HOST: db
+      MAUTIC_DB_PORT: "3306"
+      MAUTIC_DB_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env}
+      MAUTIC_DB_USER: ${MYSQL_USER:?Set MYSQL_USER in .env}
+      MAUTIC_DB_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MAUTIC_DB_SERVER_VERSION: "8.4"
+      MAUTIC_HOST: ${MAUTIC_HOST:?Set MAUTIC_HOST in .env}
+      MAUTIC_MAILER_DSN: ${MAUTIC_MAILER_DSN:-null://null}
+      AI_OS_SES_ROOT_DOMAIN: ${AI_OS_SES_ROOT_DOMAIN:?Set the tenant root domain}
+      AI_OS_SES_SEND_ENABLED: ${AI_OS_SES_SEND_ENABLED:-false}
+      AI_OS_SES_FEEDBACK_SECRET: ${AI_OS_SES_FEEDBACK_SECRET:-}
+      PHP_INI_VALUE_DATE_TIMEZONE: ${TZ:-UTC}
+      PHP_INI_VALUE_MEMORY_LIMIT: 512M
+      PHP_INI_VALUE_MAX_EXECUTION_TIME: "300"
+    volumes:
+      - mautic_config:/var/www/html/config
+      - mautic_logs:/var/www/html/var/logs
+      - mautic_files:/var/www/html/docroot/media/files
+      - mautic_images:/var/www/html/docroot/media/images
+      - ./plugins/AiOsSesBundle:/var/www/html/docroot/plugins/AiOsSesBundle:ro
+    networks:
+      backend: {}
+      proxy:
+        aliases:
+          - ${TENANT_SLUG:?Set TENANT_SLUG in .env}-mautic-web
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'curl --fail --silent --show-error --max-time 8 --header "Host: $${MAUTIC_HOST}" http://127.0.0.1/s/login --output /dev/null'
+      start_period: 180s
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+
+  mautic_cron:
+    image: ${MAUTIC_IMAGE:?Set MAUTIC_IMAGE in .env}
+    restart: unless-stopped
+    environment:
+      DOCKER_MAUTIC_ROLE: mautic_cron
+      MAUTIC_DB_HOST: db
+      MAUTIC_DB_PORT: "3306"
+      MAUTIC_DB_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env}
+      MAUTIC_DB_USER: ${MYSQL_USER:?Set MYSQL_USER in .env}
+      MAUTIC_DB_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MAUTIC_DB_SERVER_VERSION: "8.4"
+      MAUTIC_HOST: ${MAUTIC_HOST:?Set MAUTIC_HOST in .env}
+      MAUTIC_MAILER_DSN: ${MAUTIC_MAILER_DSN:-null://null}
+      AI_OS_SES_ROOT_DOMAIN: ${AI_OS_SES_ROOT_DOMAIN:?Set the tenant root domain}
+      AI_OS_SES_SEND_ENABLED: ${AI_OS_SES_SEND_ENABLED:-false}
+      AI_OS_SES_FEEDBACK_SECRET: ${AI_OS_SES_FEEDBACK_SECRET:-}
+      PHP_INI_VALUE_DATE_TIMEZONE: ${TZ:-UTC}
+      PHP_INI_VALUE_MEMORY_LIMIT: 512M
+    volumes:
+      - mautic_config:/var/www/html/config
+      - mautic_logs:/var/www/html/var/logs
+      - mautic_files:/var/www/html/docroot/media/files
+      - mautic_images:/var/www/html/docroot/media/images
+      - ./plugins/AiOsSesBundle:/var/www/html/docroot/plugins/AiOsSesBundle:ro
+    networks:
+      - backend
+      - egress
+    depends_on:
+      db:
+        condition: service_healthy
+      mautic_web:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  mysql_data:
+  mautic_config:
+  mautic_logs:
+  mautic_files:
+  mautic_images:
+
+networks:
+  backend:
+    internal: true
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:?Set PROXY_NETWORK to the existing NPM Docker network}
+  # Cron sends directly to SES. The DB remains on the internal-only network.
+  egress: {}

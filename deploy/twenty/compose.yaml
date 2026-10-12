@@ -1,0 +1,135 @@
+name: business-os-twenty
+
+x-app-environment: &app-environment
+  NODE_PORT: "3000"
+  PG_DATABASE_URL: postgres://${PG_DATABASE_USER:-twenty}:${PG_DATABASE_PASSWORD:?Generate .env with prepare-env.py}@db:5432/${PG_DATABASE_NAME:-twenty}
+  SERVER_URL: ${SERVER_URL:?Set the public HTTPS origin}
+  REDIS_URL: redis://redis:6379
+  STORAGE_TYPE: local
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Generate .env with prepare-env.py}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  server:
+    image: twentycrm/twenty:v2.45.0@sha256:81b6444c146fc39aec5e8de6ff6f996c78714910abf117f129ba78c925690dfd
+    environment:
+      <<: *app-environment
+      DISABLE_DB_MIGRATIONS: "false"
+      DISABLE_CRON_JOBS_REGISTRATION: "false"
+    volumes:
+      - server-local-data:/app/packages/twenty-server/.local-storage
+    expose:
+      - "3000"
+    networks:
+      app:
+      web:
+        aliases:
+          - business-os-twenty
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:3000/healthz"]
+      start_period: 120s
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 3g
+    cpus: 2.0
+    restart: unless-stopped
+    stop_grace_period: 60s
+    logging: *logging
+
+  worker:
+    image: twentycrm/twenty:v2.45.0@sha256:81b6444c146fc39aec5e8de6ff6f996c78714910abf117f129ba78c925690dfd
+    command: ["yarn", "worker:prod"]
+    environment:
+      <<: *app-environment
+      DISABLE_DB_MIGRATIONS: "true"
+      DISABLE_CRON_JOBS_REGISTRATION: "true"
+    volumes:
+      - server-local-data:/app/packages/twenty-server/.local-storage
+    networks:
+      - app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+    # This proves process liveness only; acceptance must also exercise a queue job.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const fs=require('fs');const alive=fs.readdirSync('/proc').some(p=>{if(!/^\\d+$/.test(p)||p===String(process.pid))return false;try{return fs.readFileSync('/proc/'+p+'/cmdline','utf8').split('\\0').includes('dist/queue-worker/queue-worker')}catch{return false}});process.exit(alive?0:1)"
+      start_period: 60s
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    mem_limit: 2g
+    cpus: 2.0
+    restart: unless-stopped
+    stop_grace_period: 60s
+    logging: *logging
+
+  db:
+    image: postgres:16.15-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+    environment:
+      POSTGRES_DB: ${PG_DATABASE_NAME:-twenty}
+      POSTGRES_USER: ${PG_DATABASE_USER:-twenty}
+      POSTGRES_PASSWORD: ${PG_DATABASE_PASSWORD:?Generate .env with prepare-env.py}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - app
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -h localhost -d \"$$POSTGRES_DB\""]
+      start_period: 30s
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 2g
+    cpus: 2.0
+    restart: unless-stopped
+    stop_grace_period: 60s
+    logging: *logging
+
+  redis:
+    image: redis:8.2.10-bookworm@sha256:47670742d7924adbcdb404d1288b6327815b23141969c0939b8e5d61f78c2634
+    command: ["redis-server", "--maxmemory", "384mb", "--maxmemory-policy", "noeviction", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - app
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      start_period: 10s
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 768m
+    cpus: 0.5
+    restart: unless-stopped
+    stop_grace_period: 30s
+    logging: *logging
+
+volumes:
+  db-data:
+  server-local-data:
+  redis-data:
+
+networks:
+  app:
+  web:
+    external: true
+    name: web

@@ -1,0 +1,48 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageExactFeedbackTopic",
+      "Effect": "Allow",
+      "Action": [
+        "sns:CreateTopic",
+        "sns:GetTopicAttributes",
+        "sns:SetTopicAttributes",
+        "sns:ListSubscriptionsByTopic"
+      ],
+      "Resource": "arn:aws:sns:ca-central-1:123456789012:ai-os-ses-feedback",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "SubscribeOnlyExactBackendHTTPS",
+      "Effect": "Allow",
+      "Action": "sns:Subscribe",
+      "Resource": "arn:aws:sns:ca-central-1:123456789012:ai-os-ses-feedback",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1",
+          "sns:Protocol": "https",
+          "sns:Endpoint": "https://api.example.com/api/email/ses/events"
+        }
+      }
+    },
+    {
+      "Sid": "ConfirmAndInspectExactTopicSubscription",
+      "Effect": "Allow",
+      "Action": [
+        "sns:ConfirmSubscription",
+        "sns:GetSubscriptionAttributes"
+      ],
+      "Resource": "arn:aws:sns:ca-central-1:123456789012:ai-os-ses-feedback",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1"
+        }
+      }
+    }
+  ]
+}

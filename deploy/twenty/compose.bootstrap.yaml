@@ -1,0 +1,12 @@
+# Private first-admin setup. Requires Docker Compose >= 2.24.4 for !override.
+services:
+  server:
+    environment:
+      SERVER_URL: http://localhost:13000
+    ports:
+      - "127.0.0.1:13000:3000"
+    networks: !override
+      app:
+  worker:
+    environment:
+      SERVER_URL: http://localhost:13000
