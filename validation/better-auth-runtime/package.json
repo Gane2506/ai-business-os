@@ -1,0 +1,17 @@
+{
+  "name": "ai-business-os-better-auth-runtime-proof",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test runtime.test.cjs"
+  },
+  "dependencies": {
+    "better-auth": "1.7.7"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "22.18.11"
+  }
+}
