@@ -1,0 +1,35 @@
+name: Better Auth runtime proof
+
+on:
+  push:
+    paths:
+      - 'validation/better-auth-runtime/**'
+      - '.github/workflows/better-auth-runtime.yml'
+  pull_request:
+    paths:
+      - 'validation/better-auth-runtime/**'
+      - '.github/workflows/better-auth-runtime.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: validation/better-auth-runtime
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned proof dependencies
+        run: npm ci --ignore-scripts --legacy-peer-deps --no-audit --no-fund
+      - name: Compile CommonJS and exercise the real ESM runtime
+        run: npm test
