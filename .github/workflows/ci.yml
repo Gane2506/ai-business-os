@@ -81,6 +81,8 @@ jobs:
     env:
       DATABASE_URL: postgresql://ringee_ci:ringee_ci@127.0.0.1:5432/ringee_ci
       EMAIL_SEND_ENABLED: 'false'
+      AI_PROVIDER: openrouter
+      OPENROUTER_API_KEY: ci-placeholder-not-a-secret
     steps:
       - uses: actions/checkout@v4
         with:
@@ -130,7 +132,8 @@ jobs:
             src/email/ses.provider.test.ts \
             src/email/mautic-feedback.client.test.ts \
             src/email/ses-feedback.test.ts \
-            src/email/sns-feedback.verifier.test.ts)
+            src/email/sns-feedback.verifier.test.ts \
+            src/ai-agents/providers/openrouter.provider.test.ts)
           (cd packages/services && TS_NODE_PROJECT=tsconfig.json node \
             --require ../../apps/backend/test/register-env.cjs \
             --require ts-node/register \

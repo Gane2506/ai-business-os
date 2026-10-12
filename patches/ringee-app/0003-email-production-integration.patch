@@ -1562,10 +1562,20 @@ index 437c062..c74da4d 100644
  }
  
 diff --git a/packages/configuration/src/api.configuration.ts b/packages/configuration/src/api.configuration.ts
-index 4bcdd14..37b2e5b 100644
+index 4bcdd14..a30fec7 100644
 --- a/packages/configuration/src/api.configuration.ts
 +++ b/packages/configuration/src/api.configuration.ts
-@@ -26,9 +26,31 @@ const apiConfiguration = {
+@@ -16,7 +16,8 @@ const apiConfiguration = {
+   WHATSAPP_TOKEN: process.env.WHATSAPP_TOKEN!,
+   WHATSAPP_VERIFY_TOKEN: process.env.WHATSAPP_VERIFY_TOKEN!,
+   FRONTEND_URL: process.env.FRONTEND_URL!,
+-  OPENAI_API_KEY: process.env.OPENAI_API_KEY!,
++  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
++  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY!,
+   PUBLIC_BACKEND_URL: process.env.BACKEND_URL,
+   REDIS_URL: process.env.REDIS_URL!,
+@@ -26,9 +27,31 @@ const apiConfiguration = {
    TEMPORAL_ADDRESS: process.env.TEMPORAL_ADDRESS || "localhost:7233",
    TEMPORAL_NAMESPACE: process.env.TEMPORAL_NAMESPACE || "default",
    TEMPORAL_TASK_QUEUE: process.env.TEMPORAL_TASK_QUEUE || "ringee",
@@ -1598,7 +1608,60 @@ index 4bcdd14..37b2e5b 100644
    BACKEND_URL: process.env.BACKEND_URL!,
    CLERK_WEBHOOK_SIGNING_SECRET: process.env.CLERK_WEBHOOK_SIGNING_SECRET!,
    CLERK_PUBLISHABLE_KEY: process.env.CLERK_PUBLISHABLE_KEY!,
-@@ -404,8 +426,8 @@ if (!apiConfiguration.REDIS_URL) {
+@@ -204,11 +227,14 @@ const apiConfiguration = {
+   APOLLO_API_BASE_URL:
+     process.env.APOLLO_API_BASE_URL || "https://api.apollo.io",
+   // ── Ringee AI ──
+-  AI_PROVIDER: (process.env.AI_PROVIDER || "openai") as
++  AI_PROVIDER: (process.env.AI_PROVIDER || "openrouter") as
++    | "openrouter"
+     | "openai"
+-    | "anthropic"
+-    | "google"
+-    | "groq",
++    | "anthropic",
++  OPENROUTER_DEFAULT_MODEL:
++    process.env.OPENROUTER_DEFAULT_MODEL || "openai/gpt-5.4-mini",
++  OPENROUTER_SUMMARY_MODEL:
++    process.env.OPENROUTER_SUMMARY_MODEL || "openai/gpt-5.4-mini",
+   OPENAI_DEFAULT_MODEL: process.env.OPENAI_DEFAULT_MODEL || "gpt-5.4-mini",
+   OPENAI_SUMMARY_MODEL: process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini",
+   ANTHROPIC_DEFAULT_MODEL:
+@@ -314,8 +340,31 @@ if (!apiConfiguration.FRONTEND_URL) {
+   errors.push("FRONTEND_URL is not defined");
+ }
+ 
+-if (!apiConfiguration.OPENAI_API_KEY) {
+-  errors.push("OPENAI_API_KEY is not defined");
++if (
++  !["openrouter", "openai", "anthropic"].includes(apiConfiguration.AI_PROVIDER)
++) {
++  errors.push("AI_PROVIDER must be openrouter, openai, or anthropic");
++}
++if (apiConfiguration.AI_PROVIDER === "openrouter") {
++  if (!apiConfiguration.OPENROUTER_API_KEY) {
++    errors.push(
++      "OPENROUTER_API_KEY is not defined (required when AI_PROVIDER=openrouter)",
++    );
++  }
++  for (const [name, model] of [
++    ["OPENROUTER_DEFAULT_MODEL", apiConfiguration.OPENROUTER_DEFAULT_MODEL],
++    ["OPENROUTER_SUMMARY_MODEL", apiConfiguration.OPENROUTER_SUMMARY_MODEL],
++  ]) {
++    if (!/^[^\s/]+\/[^\s/]+$/.test(model)) {
++      errors.push(`${name} must use an OpenRouter author/model slug`);
++    }
++  }
++}
++if (
++  apiConfiguration.AI_PROVIDER === "openai" &&
++  !apiConfiguration.OPENAI_API_KEY
++) {
++  errors.push("OPENAI_API_KEY is not defined (required when AI_PROVIDER=openai)");
+ }
+ 
+ if (
+@@ -404,8 +453,8 @@ if (!apiConfiguration.REDIS_URL) {
    errors.push("REDIS_URL is not defined");
  }
  
@@ -10829,3 +10892,353 @@ index 803fd87..55bf05a 100644
    '@aws-sdk/client-sso@3.940.0':
      dependencies:
        '@aws-crypto/sha256-browser': 5.2.0
+diff --git a/packages/platform/src/ai-agents/ai-agents.module.ts b/packages/platform/src/ai-agents/ai-agents.module.ts
+index ddd8f50..31f2317 100644
+--- a/packages/platform/src/ai-agents/ai-agents.module.ts
++++ b/packages/platform/src/ai-agents/ai-agents.module.ts
+@@ -1,20 +1,23 @@
+ import { Module, OnModuleInit } from "@nestjs/common";
+ import { AiProviderRegistry } from "./ai-provider.registry";
+ import { OpenAiProvider } from "./providers/openai.provider";
++import { OpenRouterProvider } from "./providers/openrouter.provider";
+ import { AnthropicProvider } from "./providers/anthropic.provider";
+ 
+ @Module({
+-  providers: [AiProviderRegistry, OpenAiProvider, AnthropicProvider],
+-  exports: [AiProviderRegistry, OpenAiProvider, AnthropicProvider],
++  providers: [AiProviderRegistry, OpenRouterProvider, OpenAiProvider, AnthropicProvider],
++  exports: [AiProviderRegistry, OpenRouterProvider, OpenAiProvider, AnthropicProvider],
+ })
+ export class AiAgentsPlatformModule implements OnModuleInit {
+   constructor(
+     private readonly registry: AiProviderRegistry,
++    private readonly openrouter: OpenRouterProvider,
+     private readonly openai: OpenAiProvider,
+     private readonly anthropic: AnthropicProvider,
+   ) {}
+ 
+   onModuleInit() {
++    this.registry.register(this.openrouter);
+     this.registry.register(this.openai);
+     this.registry.register(this.anthropic);
+   }
+diff --git a/packages/platform/src/ai-agents/index.ts b/packages/platform/src/ai-agents/index.ts
+index d1ef9bc..6cabb2a 100644
+--- a/packages/platform/src/ai-agents/index.ts
++++ b/packages/platform/src/ai-agents/index.ts
+@@ -2,5 +2,6 @@ export * from "./types";
+ export * from "./pricing";
+ export * from "./ai-provider.registry";
+ export * from "./providers/openai.provider";
++export * from "./providers/openrouter.provider";
+ export * from "./providers/anthropic.provider";
+ export * from "./ai-agents.module";
+diff --git a/packages/platform/src/ai-agents/providers/openai.provider.ts b/packages/platform/src/ai-agents/providers/openai.provider.ts
+index 3c8ceaa..d4269eb 100644
+--- a/packages/platform/src/ai-agents/providers/openai.provider.ts
++++ b/packages/platform/src/ai-agents/providers/openai.provider.ts
+@@ -1,5 +1,6 @@
+ import { Injectable, Logger } from "@nestjs/common";
+ import OpenAI from "openai";
++import { createTextAiClient } from "./text-ai.client";
+ import { apiConfiguration } from "@ringee/configuration";
+ import type {
+   AiMessageInput,
+@@ -16,16 +17,29 @@ type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
+ 
+ @Injectable()
+ export class OpenAiProvider implements AiProvider {
+-  readonly name = "openai";
++  readonly name: string = "openai";
+   private readonly logger = new Logger(OpenAiProvider.name);
+-  private readonly client: OpenAI;
++  private clientInstance: OpenAI | null = null;
+ 
+-  constructor() {
+-    this.client = new OpenAI({ apiKey: apiConfiguration.OPENAI_API_KEY });
++  protected get client(): OpenAI {
++    this.clientInstance ??= this.createClient();
++    return this.clientInstance;
++  }
++
++  protected createClient(): OpenAI {
++    return createTextAiClient("openai");
++  }
++
++  protected get chatModel(): string {
++    return apiConfiguration.OPENAI_DEFAULT_MODEL;
++  }
++
++  protected get summaryModel(): string {
++    return apiConfiguration.OPENAI_SUMMARY_MODEL;
+   }
+ 
+   async *stream(req: AiStreamRequest): AsyncIterable<AiStreamEvent> {
+-    const model = apiConfiguration.OPENAI_DEFAULT_MODEL;
++    const model = this.chatModel;
+ 
+     const messages: ChatMessage[] = [
+       { role: "system", content: req.system },
+@@ -175,7 +189,7 @@ export class OpenAiProvider implements AiProvider {
+   }
+ 
+   async summarize(req: AiSummarizeRequest): Promise<AiSummarizeResponse> {
+-    const model = apiConfiguration.OPENAI_SUMMARY_MODEL;
++    const model = this.summaryModel;
+     const res = await this.client.chat.completions.create(
+       {
+         model,
+diff --git a/packages/platform/src/ai-agents/providers/openrouter.provider.test.ts b/packages/platform/src/ai-agents/providers/openrouter.provider.test.ts
+new file mode 100644
+index 0000000..5b7b038
+--- /dev/null
++++ b/packages/platform/src/ai-agents/providers/openrouter.provider.test.ts
+@@ -0,0 +1,116 @@
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++const mock = vi.hoisted(() => ({
++  config: {
++    AI_PROVIDER: "openrouter",
++    OPENROUTER_API_KEY: "router-test-key",
++    OPENROUTER_DEFAULT_MODEL: "openai/gpt-5.4-mini",
++    OPENROUTER_SUMMARY_MODEL: "openai/gpt-5.4-mini",
++    OPENAI_API_KEY: "",
++    OPENAI_DEFAULT_MODEL: "gpt-5.4-mini",
++    OPENAI_SUMMARY_MODEL: "gpt-5.4-mini",
++  },
++  clients: [] as Array<Record<string, unknown>>,
++  requests: [] as Array<Record<string, unknown>>,
++}));
++
++vi.mock("@ringee/configuration", () => ({ apiConfiguration: mock.config }));
++vi.mock("openai", () => ({
++  default: class {
++    chat = {
++      completions: {
++        create: async (request: Record<string, unknown>) => {
++          mock.requests.push(request);
++          if (request.stream) {
++            return (async function* () {
++              yield { choices: [{ delta: { content: "hello" }, finish_reason: "stop" }] };
++              yield { choices: [], usage: { prompt_tokens: 10, completion_tokens: 2 } };
++            })();
++          }
++          return {
++            choices: [{ message: { content: "summary", tool_calls: [] } }],
++            usage: { prompt_tokens: 7, completion_tokens: 2 },
++          };
++        },
++      },
++    };
++    constructor(options: Record<string, unknown>) {
++      mock.clients.push(options);
++    }
++  },
++}));
++
++import { OpenAiProvider } from "./openai.provider";
++import { OpenRouterProvider } from "./openrouter.provider";
++import { OpenaiService } from "../../ai/openai/openai.service";
++
++beforeEach(() => {
++  mock.clients.length = 0;
++  mock.requests.length = 0;
++  mock.config.OPENROUTER_API_KEY = "router-test-key";
++  mock.config.OPENROUTER_DEFAULT_MODEL = "openai/gpt-5.4-mini";
++  mock.config.OPENROUTER_SUMMARY_MODEL = "openai/gpt-5.4-mini";
++  mock.config.OPENAI_API_KEY = "";
++  mock.config.AI_PROVIDER = "openrouter";
++});
++
++describe("OpenRouter text provider", () => {
++  it("constructs without an OpenAI key and creates only the selected client on use", async () => {
++    const openrouter = new OpenRouterProvider();
++    const openai = new OpenAiProvider();
++    expect(mock.clients).toHaveLength(0);
++    const result = await openrouter.summarize({ system: "summarize", messages: [] });
++    expect(result.summary).toBe("summary");
++    expect(result.usage?.model).toBe("openai/gpt-5.4-mini");
++    expect(mock.clients).toEqual([
++      { apiKey: "router-test-key", baseURL: "https://openrouter.ai/api/v1" },
++    ]);
++    expect(mock.requests[0].model).toBe("openai/gpt-5.4-mini");
++    expect(openai.name).toBe("openai");
++  });
++
++  it("streams text and tools through the OpenAI-compatible API", async () => {
++    const provider = new OpenRouterProvider();
++    const events: unknown[] = [];
++    for await (const event of provider.stream({
++      system: "system",
++      messages: [{ role: "user", content: "hello" }],
++      tools: [{ name: "lookup", description: "Find", parameters: { type: "object" } }],
++    })) events.push(event);
++    expect(events).toContainEqual({ type: "text_delta", delta: "hello" });
++    expect(events[events.length - 1]).toMatchObject({ type: "completed", finishReason: "stop" });
++    expect(mock.requests[0].tools).toBeDefined();
++    expect(mock.requests[0].model).toBe("openai/gpt-5.4-mini");
++  });
++
++  it("fails without its key and refuses an unpriced model", async () => {
++    mock.config.OPENROUTER_API_KEY = "";
++    await expect(new OpenRouterProvider().summarize({ system: "x", messages: [] }))
++      .rejects.toThrow(/OPENROUTER_API_KEY/);
++    mock.config.OPENROUTER_API_KEY = "router-test-key";
++    mock.config.OPENROUTER_SUMMARY_MODEL = "unknown/unpriced";
++    await expect(new OpenRouterProvider().summarize({ system: "x", messages: [] }))
++      .rejects.toThrow(/no reviewed Ringee token pricing/);
++    expect(mock.requests).toHaveLength(0);
++  });
++
++  it("retains explicit OpenAI selection", async () => {
++    mock.config.OPENAI_API_KEY = "openai-test-key";
++    await new OpenAiProvider().summarize({ system: "x", messages: [] });
++    expect(mock.clients).toEqual([{ apiKey: "openai-test-key" }]);
++    expect(mock.requests[0].model).toBe("gpt-5.4-mini");
++  });
++
++  it("routes legacy text through OpenRouter and keeps its client lazy", async () => {
++    const service = new OpenaiService();
++    expect(mock.clients).toHaveLength(0);
++    const result = await service.generateWithTools({
++      messages: [],
++      systemPrompt: "system",
++      tools: [],
++    });
++    expect(result).toEqual({ type: "text", text: "summary" });
++    expect(mock.clients[0]).toMatchObject({ baseURL: "https://openrouter.ai/api/v1" });
++    expect(mock.requests[0].model).toBe("openai/gpt-5.4-mini");
++  });
++});
+diff --git a/packages/platform/src/ai-agents/providers/openrouter.provider.ts b/packages/platform/src/ai-agents/providers/openrouter.provider.ts
+new file mode 100644
+index 0000000..2c3f260
+--- /dev/null
++++ b/packages/platform/src/ai-agents/providers/openrouter.provider.ts
+@@ -0,0 +1,24 @@
++import { Injectable } from "@nestjs/common";
++import OpenAI from "openai";
++import { apiConfiguration } from "@ringee/configuration";
++import { OpenAiProvider } from "./openai.provider";
++import { createTextAiClient, reviewedOpenRouterModel } from "./text-ai.client";
++
++/** OpenRouter's OpenAI-compatible text chat and tool-calling adapter. */
++@Injectable()
++export class OpenRouterProvider extends OpenAiProvider {
++  override readonly name = "openrouter";
++
++  protected override createClient(): OpenAI {
++    return createTextAiClient("openrouter");
++  }
++
++  protected override get chatModel(): string {
++    return reviewedOpenRouterModel(apiConfiguration.OPENROUTER_DEFAULT_MODEL);
++  }
++
++  protected override get summaryModel(): string {
++    return reviewedOpenRouterModel(apiConfiguration.OPENROUTER_SUMMARY_MODEL);
++  }
++
++}
+diff --git a/packages/platform/src/ai-agents/providers/text-ai.client.ts b/packages/platform/src/ai-agents/providers/text-ai.client.ts
+new file mode 100644
+index 0000000..31f1e8a
+--- /dev/null
++++ b/packages/platform/src/ai-agents/providers/text-ai.client.ts
+@@ -0,0 +1,32 @@
++import OpenAI from "openai";
++import { apiConfiguration } from "@ringee/configuration";
++import { isModelPriced } from "../pricing";
++
++export type TextAiProviderName = "openrouter" | "openai";
++
++/** Build only when a text request is made; other providers need no OpenAI key. */
++export function createTextAiClient(provider: TextAiProviderName): OpenAI {
++  if (provider === "openrouter") {
++    const apiKey = apiConfiguration.OPENROUTER_API_KEY;
++    if (!apiKey) {
++      throw new Error("OPENROUTER_API_KEY is required for OpenRouter text requests");
++    }
++    return new OpenAI({ apiKey, baseURL: "https://openrouter.ai/api/v1" });
++  }
++  const apiKey = apiConfiguration.OPENAI_API_KEY;
++  if (!apiKey) {
++    throw new Error("OPENAI_API_KEY is required for OpenAI text requests");
++  }
++  return new OpenAI({ apiKey });
++}
++
++/** Require a reviewed OpenRouter tariff before any request can incur cost. */
++export function reviewedOpenRouterModel(model: string): string {
++  // Provider pricing can differ even when a model ID resembles a direct API ID.
++  if (model !== "openai/gpt-5.4-mini" || !isModelPriced(model)) {
++    throw new Error(
++      `OpenRouter model ${model} has no reviewed Ringee token pricing; add a reviewed pricing entry before use`,
++    );
++  }
++  return model;
++}
+diff --git a/packages/platform/src/ai/openai/openai.service.ts b/packages/platform/src/ai/openai/openai.service.ts
+index 231c870..d0a7d8d 100644
+--- a/packages/platform/src/ai/openai/openai.service.ts
++++ b/packages/platform/src/ai/openai/openai.service.ts
+@@ -5,6 +5,11 @@ import {
+   ChatCompletionTool,
+ } from "openai/resources/chat/completions";
+ import { apiConfiguration } from "@ringee/configuration";
++import {
++  createTextAiClient,
++  reviewedOpenRouterModel,
++  type TextAiProviderName,
++} from "../../ai-agents/providers/text-ai.client";
+ import dayjs from "dayjs";
+ import utc from "dayjs/plugin/utc";
+ import { AiServiceInterface } from "../ai.service.interface";
+@@ -12,12 +17,31 @@ import { getAiSystemPrompt } from "../ai.system.prompt";
+ 
+ dayjs.extend(utc);
+ 
+-const openai = new OpenAI({
+-  apiKey: apiConfiguration.OPENAI_API_KEY,
+-});
+-
+ @Injectable()
+ export class OpenaiService implements AiServiceInterface {
++  private clientInstance: OpenAI | null = null;
++  private clientProvider: TextAiProviderName | null = null;
++
++  private textClient(): { client: OpenAI; model: string } {
++    const provider = apiConfiguration.AI_PROVIDER;
++    if (provider !== "openrouter" && provider !== "openai") {
++      throw new Error(
++        `Legacy text tool generation does not support AI_PROVIDER=${provider}; use the canonical AI provider registry`,
++      );
++    }
++    if (!this.clientInstance || this.clientProvider !== provider) {
++      this.clientInstance = createTextAiClient(provider);
++      this.clientProvider = provider;
++    }
++    return {
++      client: this.clientInstance,
++      model:
++        provider === "openrouter"
++          ? reviewedOpenRouterModel(apiConfiguration.OPENROUTER_DEFAULT_MODEL)
++          : "gpt-4.1",
++    };
++  }
++
+   async generateWithTools({
+     messages,
+     systemPrompt,
+@@ -39,8 +63,9 @@ export class OpenaiService implements AiServiceInterface {
+   > {
+     const newSystemPrompt = systemPrompt || getAiSystemPrompt();
+ 
+-    const completion = await openai.chat.completions.create({
+-      model: "gpt-4.1",
++    const { client, model } = this.textClient();
++    const completion = await client.chat.completions.create({
++      model,
+       // temperature,
+       max_tokens: maxTokens,
+       tool_choice: "auto",

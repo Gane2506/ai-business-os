@@ -1,75 +1,25 @@
 # Provider migration status
 
-User choices on 2026-10-11: Better Auth, AWS SES, Telnyx, Stripe, retained
-WhatsApp. See decision 0003 for primary references and connection discovery.
+Selected providers: Better Auth, AWS SES, OpenRouter, Telnyx, Stripe and WhatsApp.
 
-## Implemented locally
+The active cumulative Ringee patch is `patches/ringee-app/0003-email-production-integration.patch`, registered by SHA-256 in `config/component-patches.json`. GitHub Actions recreates the pinned upstream source and applies this patch.
 
-AWS SES replaces Resend in Ringee application email call sites. The provider
-uses pinned AWS SDK 3.940.0 and the standard AWS credential chain. Reply-to, CC,
-and BCC are preserved; requests fail if AWS rejects the message or returns no
-message ID. No error body or email content is logged by the transport.
+## Implemented source
 
-Affected sender and internal support identities use EMAIL_FROM_ADDRESS and
-INTERNAL_SUPPORT_EMAIL (the latter defaults to the former), replacing upstream
-hardcoded mailboxes. Configure a verified SES From identity and AWS_SES_REGION.
-The upstream WhatsApp feature and required startup settings remain enabled.
+AWS SES v2 replaces Resend at Ringee email call sites. The central sender persists tenant domains and stream identities, preferences, suppression, unsubscribe tokens and a delivery ledger. All configured stream senders use `noreply`. Sending defaults to disabled and checks production access, identity/configuration readiness, ownership, quota and suppression. Signed SNS feedback and a Mautic integration are included; live feedback delivery remains unverified.
 
-The active cumulative patch is patches/ringee-app/0003-email-production-integration.patch.
-It supersedes 0001 and 0002 and includes their MCP and database fixes. The patch hash is
-registered in config/component-patches.json. Original source pins remain clean.
+OpenRouter is the default for text chat, tool calls and summarization using the existing OpenAI-compatible SDK. Both canonical and legacy text clients are lazy. Only the reviewed default model is enabled; see [OpenRouter implementation](openrouter-text.md) for settings and scope. Voice, audio and realtime media retain their existing paths.
 
 ## Validation
 
-- Four SES transport tests: recipient/reply routing, AWS rejection, absent
-  acceptance ID, and header injection prevention.
-- Seventeen existing missed-call notification tests: recipient isolation,
-  retry behavior, duplicate events and team routing.
-- Backend Nest build and platform TypeScript check passed.
-- Offline frozen-lockfile validation passed after temporary extraction of the
-  application document for pnpm 11. Original package-manager metadata and
-  existing package version pins were preserved.
-- Clean-base patch application, current-tree reverse check and preparation
-  idempotence passed.
-- Secret generator checks confirmed two independent 256-bit values, mode 0600,
-  and refusal to overwrite an existing file.
+The main branch before the OpenRouter change passed all three GitHub Actions jobs: repository fingerprints and offline tests, pinned source/evidence checks, and Ringee mocked email tests, backend type checking and disposable PostgreSQL17 migrations/invariants. The OpenRouter pull request adds mocked provider routing and streaming tests; its CI results are recorded on the pull request.
 
-The original transport validation was local. Later, six explicitly authorized
-infrastructure messages were accepted by SES; their evidence is recorded under
-`docs/implementation/evidence/`. The user now prohibits further test sends.
-No combined application deployment has occurred.
+No live AI requests were made for this change. Earlier authorized SES infrastructure messages are recorded in `evidence/`; the user prohibits all further test sends. No combined application deployment has occurred.
 
 ## Remaining work
 
-Better Auth migration is not implemented. It must replace backend/frontend
-Clerk session, organization, administration, webhook and websocket behavior
-without weakening ownership or workspace checks. Native Twenty and Mautic
-identity are separate from the Ringee Clerk replacement.
+Better Auth is planned, not implemented. See [migration plan](better-auth-migration-plan.md). Backend, frontend, websocket, MCP and SDK authentication must retain UUID ownership and closed signup. Twenty and Mautic identity integration remain separate.
 
-SES region is ca-central-1; all six stream domains are verified. Bitwarden holds
-AWS, Telnyx, OpenRouter and Stripe credentials. Telnyx has no MCP connection.
-Resolve application runtime permissions, platform-domain enrollment, signed
-feedback subscription, Stripe callback routing and WhatsApp credentials before
-deployment. An active
-Stripe connector is confirmed, but its credentials are not automatically
-available to the application.
+SES is configured in `ca-central-1`; six stream domains are verified. Production SES access, runtime permissions, platform-domain enrollment and signed feedback subscription remain deployment gates. Bitwarden holds AWS, OpenRouter, Telnyx and Stripe credentials. WhatsApp credentials and application callback routing still need completion. Telnyx has no MCP connection.
 
-The deployment-agent drafts stopped at an account usage limit. They remain
-explicitly marked incomplete. Inbound credential isolation, first-admin
-bootstrap, NPM host/certificate setup, backups and runtime acceptance remain
-open deployment gates.
-
-## Central sender integration
-
-The cumulative 0003 source snapshot adds SES v2 transport, persisted tenant
-domains and stream identities, preferences, suppression, hashed unsubscribe
-tokens and a delivery acceptance ledger. Sender addresses are exact noreply
-addresses on each stream domain. Runtime sending defaults to disabled and gates
-production access, identity/DKIM/MAIL FROM/configuration-set readiness, quota,
-ownership and suppression. Ambiguous attempts require manual reconciliation.
-
-Sender validation passed 98 mocked tests, changed-file ESLint and backend
-TypeScript checking. Fresh baseline plus additive email migration and synthetic
-SQL invariants passed on local PostgreSQL16.9; live schema comparison was clean.
-Signed feedback and Mautic receive a separate final review. Deployment, real
-feedback delivery and mailbox authentication-header acceptance remain open.
+Deployment drafts remain incomplete. First-admin provisioning, NPM hosts/TLS, backups, runtime secret injection and application acceptance checks must be completed before production traffic.
