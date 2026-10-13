@@ -61,14 +61,23 @@ jobs:
 
   ringee-application:
     needs: repository
+    name: Ringee application (PostgreSQL ${{ matrix.postgres-major }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - postgres-major: '16'
+            postgres-image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+          - postgres-major: '17'
+            postgres-image: postgres:17-alpine
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
       contents: read
     services:
       postgres:
-        # Matches Ringee's existing docker-compose.yml; this is a disposable CI database.
-        image: postgres:17-alpine
+        # Test the deployment draft's exact image and the upstream PostgreSQL major.
+        image: ${{ matrix.postgres-image }}
         env:
           POSTGRES_USER: ringee_ci
           POSTGRES_PASSWORD: ringee_ci
