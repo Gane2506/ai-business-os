@@ -11493,12 +11493,12 @@ new file mode 100644
 +   length(btrim("authName")) > 0)
 +);
 diff --git a/packages/platform/src/auth/clerk/clerk.user.repository.ts b/packages/platform/src/auth/clerk/clerk.user.repository.ts
-index 12d4873..4084930 100644
+index 12d4873..092ae7e 100644
 --- a/packages/platform/src/auth/clerk/clerk.user.repository.ts
 +++ b/packages/platform/src/auth/clerk/clerk.user.repository.ts
-@@ -114,6 +114,10 @@
-     return users.map((user) => ({
-       id: user.privateMetadata.id,
+@@ -139,6 +139,10 @@
+     return {
+       id: user.id,
        clerkId: user.id,
 +      // A Clerk-only request view is not an enrolled Better Auth identity.
 +      authEmail: null,
@@ -11506,4 +11506,4 @@ index 12d4873..4084930 100644
 +      authEmailVerified: false,
        firstName: user.firstName,
        lastName: user.lastName,
-     }));
+       imageUrl: user.imageUrl,
