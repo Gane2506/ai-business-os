@@ -57,11 +57,15 @@ index c39bd7a..a606b79 100644
  
  registerAuth(program);
 diff --git a/apps/backend/package.json b/apps/backend/package.json
-index e4c0eaa..98b4df9 100644
+index e4c0eaa..d9ed6c6 100644
 --- a/apps/backend/package.json
 +++ b/apps/backend/package.json
-@@ -8,11 +8,13 @@
-     "build": "nest build",
+@@ -5,14 +5,16 @@
+   "scripts": {
+     "clean": "rimraf dist",
+     "prebuild": "pnpm run clean",
+-    "build": "nest build",
++    "build": "nest build && node ../../scripts/copy-auth-runtime.cjs apps/backend",
      "start:prod": "node dist/apps/backend/src/main",
      "generate:number-pricing": "TS_NODE_PROJECT=tsconfig.json dotenv -e ../../.env -- ts-node -r tsconfig-paths/register scripts/generate-number-pricing.ts",
 -    "dev": "nest start --watch --env-file ../../.env"
@@ -75,6 +79,16 @@ index e4c0eaa..98b4df9 100644
      "@clerk/backend": "^2.17.2",
      "@clerk/express": "^1.7.37",
      "@keyv/redis": "^5.1.2",
+@@ -55,7 +57,8 @@
+     "tldts": "7.4.15",
+     "ws": "^8.21.0",
+     "zod": "^4.1.12",
+-    "zod-to-json-schema": "^3.24.6"
++    "zod-to-json-schema": "^3.24.6",
++    "better-auth": "1.7.7"
+   },
+   "devDependencies": {
+     "@nestjs/cli": "~11.0.0",
 diff --git a/apps/backend/src/api/routes/credit.controller.ts b/apps/backend/src/api/routes/credit.controller.ts
 index 62795d7..743e679 100644
 --- a/apps/backend/src/api/routes/credit.controller.ts
@@ -1037,10 +1051,18 @@ index 506a553..866b739 100644
    }
  ];
 diff --git a/apps/orchestrator/package.json b/apps/orchestrator/package.json
-index 8c8bfa4..ac6580e 100644
+index 8c8bfa4..6262854 100644
 --- a/apps/orchestrator/package.json
 +++ b/apps/orchestrator/package.json
-@@ -10,6 +10,7 @@
+@@ -3,13 +3,14 @@
+   "version": "1.0.0",
+   "private": true,
+   "scripts": {
+-    "build": "nest build",
++    "build": "nest build && node ../../scripts/copy-auth-runtime.cjs apps/orchestrator",
+     "start": "node dist/apps/orchestrator/src/main.js",
+     "dev": "nest start --watch --env-file ../../.env"
+   },
    "dependencies": {
      "@anthropic-ai/sdk": "^0.96.0",
      "@aws-sdk/client-s3": "^3.940.0",
@@ -1048,6 +1070,16 @@ index 8c8bfa4..ac6580e 100644
      "@clerk/express": "^1.7.37",
      "@keyv/redis": "^5.1.2",
      "@modelcontextprotocol/sdk": "^1.19.1",
+@@ -55,7 +56,8 @@
+     "tldts": "7.4.15",
+     "ws": "^8.21.0",
+     "zod": "^4.1.12",
+-    "zod-to-json-schema": "^3.24.6"
++    "zod-to-json-schema": "^3.24.6",
++    "better-auth": "1.7.7"
+   },
+   "devDependencies": {
+     "@nestjs/cli": "^11.0.13",
 diff --git a/docs/engineering/ARCHITECTURE.md b/docs/engineering/ARCHITECTURE.md
 index eac8076..7e19ff7 100644
 --- a/docs/engineering/ARCHITECTURE.md
@@ -7589,20 +7621,29 @@ index 0000000..6cff89c
 +  }
 +}
 diff --git a/packages/database/src/database/repositories/index.ts b/packages/database/src/database/repositories/index.ts
-index eb61501..639d859 100644
+index eb61501..7fcf340 100644
 --- a/packages/database/src/database/repositories/index.ts
 +++ b/packages/database/src/database/repositories/index.ts
-@@ -101,3 +101,5 @@ export * from "./inbound-ring-attempt.repository";
+@@ -101,3 +101,6 @@ export * from "./inbound-ring-attempt.repository";
  export * from "./personal-api-key.repository";
  export * from "./cli-auth-request.repository";
  export * from "./mcp-usage.repository";
 +
 +export * from "./email.repository";
++export * from "./auth-session.repository";
 diff --git a/packages/platform/package.json b/packages/platform/package.json
-index aa9ebf7..2ec3d8b 100644
+index aa9ebf7..0c35899 100644
 --- a/packages/platform/package.json
 +++ b/packages/platform/package.json
-@@ -12,6 +12,7 @@
+@@ -5,13 +5,14 @@
+   "scripts": {
+     "clean": "rimraf dist",
+     "prebuild": "pnpm run clean",
+-    "build": "nest build",
++    "build": "nest build && node ../../scripts/copy-auth-runtime.cjs packages/platform",
+     "test": "vitest run",
+     "test:watch": "vitest"
+   },
    "dependencies": {
      "@anthropic-ai/sdk": "^0.96.0",
      "@aws-sdk/client-s3": "^3.940.0",
@@ -7610,7 +7651,7 @@ index aa9ebf7..2ec3d8b 100644
      "@clerk/express": "^1.7.37",
      "@deepgram/sdk": "^5.4.0",
      "@keyv/redis": "^5.1.2",
-@@ -36,7 +37,6 @@
+@@ -36,12 +37,12 @@
      "mime-types": "^3.0.2",
      "openai": "^6.2.0",
      "reflect-metadata": "~0.2.2",
@@ -7618,6 +7659,13 @@ index aa9ebf7..2ec3d8b 100644
      "rimraf": "~6.0.0",
      "rxjs": "~7.8.0",
      "stripe": "^19.1.0",
+     "telnyx": "^4.2.1",
+-    "ws": "^8.21.0"
++    "ws": "^8.21.0",
++    "better-auth": "1.7.7"
+   },
+   "devDependencies": {
+     "@nestjs/cli": "~11.0.0",
 diff --git a/packages/platform/src/email/email-result.ts b/packages/platform/src/email/email-result.ts
 index 486b077..3539dbf 100644
 --- a/packages/platform/src/email/email-result.ts
@@ -10531,7 +10579,7 @@ index f498d4c..cf33061 100644
        if (wasAccepted(result)) return true;
        const delay = this.retryDelaysMs[attempt];
 diff --git a/packages/services/src/services/index.ts b/packages/services/src/services/index.ts
-index 9dc76b6..b39ff5b 100644
+index 9dc76b6..d29ec2b 100644
 --- a/packages/services/src/services/index.ts
 +++ b/packages/services/src/services/index.ts
 @@ -1,4 +1,5 @@
@@ -10540,12 +10588,13 @@ index 9dc76b6..b39ff5b 100644
  export * from "./services.module";
  export * from "./chat.auth.service";
  export * from "./call.service";
-@@ -59,3 +60,5 @@ export * from "./voice-agents";
+@@ -59,3 +60,6 @@ export * from "./voice-agents";
  
  export * from "./external-carrier/external-carrier.service";
  export * from "./inbound-routing";
 +
 +export * from "./email.service";
++export * from "./auth-principal.service";
 diff --git a/packages/services/src/services/number.purchased.service.ts b/packages/services/src/services/number.purchased.service.ts
 index e18da01..074e750 100644
 --- a/packages/services/src/services/number.purchased.service.ts
@@ -10838,40 +10887,59 @@ index e03bc94..d479bab 100644
      if ("sent" in result && result.sent === false) return false;
      if ("error" in result && result.error) return false;
 diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
-index 803fd87..55bf05a 100644
+index 803fd87..ac9e68d 100644
 --- a/pnpm-lock.yaml
 +++ b/pnpm-lock.yaml
-@@ -277,6 +277,9 @@ importers:
+@@ -277,6 +277,12 @@ importers:
  
    apps/backend:
      dependencies:
++      better-auth:
++        specifier: 1.7.7
++        version: 1.7.7(@prisma/client@6.16.3)(next@15.3.8(react-dom@19.0.3(react@19.0.3))(react@19.0.3))(react-dom@19.0.3(react@19.0.3))(react@19.0.3)
 +      '@aws-sdk/client-sesv2':
 +        specifier: 3.940.0
 +        version: 3.940.0
        '@anthropic-ai/sdk':
          specifier: ^0.96.0
          version: 0.96.0(zod@4.1.12)
-@@ -902,6 +905,9 @@ importers:
+@@ -902,6 +908,12 @@ importers:
  
    apps/orchestrator:
      dependencies:
++      better-auth:
++        specifier: 1.7.7
++        version: 1.7.7(@prisma/client@6.16.3)(next@15.3.8(react-dom@19.0.3(react@19.0.3))(react@19.0.3))(react-dom@19.0.3(react@19.0.3))(react@19.0.3)
 +      '@aws-sdk/client-sesv2':
 +        specifier: 3.940.0
 +        version: 3.940.0
        '@anthropic-ai/sdk':
          specifier: ^0.96.0
          version: 0.96.0(zod@4.1.12)
-@@ -1476,6 +1482,9 @@ importers:
+@@ -1229,6 +1241,9 @@ importers:
+ 
+   packages/frontend-shared:
+     dependencies:
++      better-auth:
++        specifier: 1.7.7
++        version: 1.7.7(@prisma/client@6.16.3)(next@15.3.8(react-dom@19.0.3(react@19.0.3))(react@19.0.3))(react-dom@19.0.3(react@19.0.3))(react@19.0.3)
+       '@clerk/nextjs':
+         specifier: 7.6.2
+         version: 7.6.2(next@15.3.8(@babel/core@7.28.4(supports-color@8.1.1))(@opentelemetry/api@1.9.0)(babel-plugin-macros@3.1.0)(react-dom@19.0.3(react@19.0.3))(react@19.0.3))(react-dom@19.0.3(react@19.0.3))(react@19.0.3)
+@@ -1476,6 +1491,12 @@ importers:
  
    packages/platform:
      dependencies:
++      better-auth:
++        specifier: 1.7.7
++        version: 1.7.7(@prisma/client@6.16.3)(next@15.3.8(react-dom@19.0.3(react@19.0.3))(react@19.0.3))(react-dom@19.0.3(react@19.0.3))(react@19.0.3)
 +      '@aws-sdk/client-sesv2':
 +        specifier: 3.940.0
 +        version: 3.940.0
        '@anthropic-ai/sdk':
          specifier: ^0.96.0
          version: 0.96.0(zod@4.1.12)
-@@ -1554,9 +1563,6 @@ importers:
+@@ -1554,9 +1575,6 @@ importers:
        reflect-metadata:
          specifier: ~0.2.2
          version: 0.2.2
@@ -10881,7 +10949,363 @@ index 803fd87..55bf05a 100644
        rimraf:
          specifier: ~6.0.0
          version: 6.0.1
-@@ -1755,6 +1761,14 @@ packages:
+@@ -1664,6 +1682,355 @@ importers:
+ 
+ packages:
+ 
++  '@better-auth/core@1.7.7':
++    resolution: {integrity: sha512-srgFzHEjB2WWlokFz1i4BfG41sNhsA105Pukgqu6RrEh5A+LSkzf1mCHydVipkjt9l5qswtBMi7IL6ouHbZL4Q==}
++    peerDependencies:
++      '@better-auth/utils': 0.4.2
++      '@better-fetch/fetch': 1.3.2
++      '@opentelemetry/api': ^1.9.0
++      better-call: 1.4.0
++      jose: ^6.1.0
++      kysely: ^0.28.5 || ^0.29.0
++      nanostores: ^1.0.1
++    peerDependenciesMeta:
++      '@opentelemetry/api':
++        optional: true
++
++  '@better-auth/drizzle-adapter@1.7.7':
++    resolution: {integrity: sha512-qon0U94PR5FQysuyGoAlGVQpIIiNg5dtDpwjE63sN/HjoRWZadZzHPcS9mn7JsJyQZK6iTNhd7LD0AaXt2f78w==}
++    peerDependencies:
++      '@better-auth/core': ^1.7.7
++      '@better-auth/utils': 0.4.2
++      drizzle-orm: ^0.45.2 || >=1.0.0-rc.1 <2.0.0
++    peerDependenciesMeta:
++      drizzle-orm:
++        optional: true
++
++  '@better-auth/kysely-adapter@1.7.7':
++    resolution: {integrity: sha512-9FONOCgOcrQI9wJ5v1oDGIg9sT7pa9RjZZQ4fsCTudo8R87SrIGNUvUxDFTJhZvUblvFfGaIBR9Vb8LA+8bqLQ==}
++    peerDependencies:
++      '@better-auth/core': ^1.7.7
++      '@better-auth/utils': 0.4.2
++      kysely: ^0.28.17 || ^0.29.0
++    peerDependenciesMeta:
++      kysely:
++        optional: true
++
++  '@better-auth/memory-adapter@1.7.7':
++    resolution: {integrity: sha512-FqKFEe+b5tXXV0gRbyirca+qXgMpLOeJ8Wk19yykb/scQKy0WJ4k22WzEV3TTPctQV9DZhwCXPlDtQhnlOv5Gg==}
++    peerDependencies:
++      '@better-auth/core': ^1.7.7
++      '@better-auth/utils': 0.4.2
++
++  '@better-auth/mongo-adapter@1.7.7':
++    resolution: {integrity: sha512-ZnVDuRrXqbf0oHphrEN27oTImNH5NTO26dtWatq5cXyYAsH7goof9QIoTOmxTbBxUQahKBw9T6+9h6n+RtOE+g==}
++    peerDependencies:
++      '@better-auth/core': ^1.7.7
++      '@better-auth/utils': 0.4.2
++      mongodb: ^6.0.0 || ^7.0.0
++    peerDependenciesMeta:
++      mongodb:
++        optional: true
++
++  '@better-auth/prisma-adapter@1.7.7':
++    resolution: {integrity: sha512-4YcnrcVdvWiAZw0sZl63tWUClPXg5r3QsLn7C2sG7kKEBY06zOng0ibecyxRBixKq1zE1ceHuEUqez5Rhi+nQA==}
++    peerDependencies:
++      '@better-auth/core': ^1.7.7
++      '@better-auth/utils': 0.4.2
++      '@prisma/client': ^5.0.0 || ^6.0.0 || ^7.0.0
++      prisma: ^5.0.0 || ^6.0.0 || ^7.0.0
++    peerDependenciesMeta:
++      '@prisma/client':
++        optional: true
++      prisma:
++        optional: true
++
++  '@better-auth/telemetry@1.7.7':
++    resolution: {integrity: sha512-PaRA6i+kAioVYmza2gHPcdrxP0hAotph4KV9hft2GeNJq+AZXDiBu3FuLM9HxvcmiZeUT74Vufqd9ypmB8veTA==}
++    peerDependencies:
++      '@better-auth/core': ^1.7.7
++      '@better-auth/utils': 0.4.2
++      '@better-fetch/fetch': 1.3.2
++
++  '@better-auth/utils@0.4.2':
++    resolution: {integrity: sha512-AUxrvu+HaaODsUyzDxFgwd/8RZ1yZaYo42LXKSrU2oGgR38pS1ij8nqQKNgtTWoYGpNevNXtCfgTy6loHveW9A==}
++
++  '@better-auth/utils@0.5.0':
++    resolution: {integrity: sha512-BL8W4EfIZFwlu0r54m3v1ztjDhu6dDe/amLTm0xybmbZaNgYUqhD3SjpAsnq0q8YD6/ki4iwIgxJNLP/N3TxiA==}
++
++  '@better-fetch/fetch@1.3.2':
++    resolution: {integrity: sha512-Gs7n99b5tqUC6cQAPbV0uED3IraHB6xQbHLQ/C3l7ZFafHScOx9pQ+DYmP5blbLFShVWLqxNUlI9wi4xU/X+ow==}
++
++  '@emnapi/runtime@1.11.3':
++    resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
++
++  '@img/colour@1.1.0':
++    resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
++    engines: {node: '>=18'}
++
++  '@img/sharp-darwin-arm64@0.34.5':
++    resolution: {integrity: sha512-imtQ3WMJXbMY4fxb/Ndp6HBTNVtWCUI0WdobyheGf5+ad6xX8VIDO8u2xE4qc/fr08CKG/7dDseFtn6M6g/r3w==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++    cpu: [arm64]
++    os: [darwin]
++
++  '@img/sharp-darwin-x64@0.34.5':
++    resolution: {integrity: sha512-YNEFAF/4KQ/PeW0N+r+aVVsoIY0/qxxikF2SWdp+NRkmMB7y9LBZAVqQ4yhGCm/H3H270OSykqmQMKLBhBJDEw==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++    cpu: [x64]
++    os: [darwin]
++
++  '@img/sharp-libvips-darwin-arm64@1.2.4':
++    resolution: {integrity: sha512-zqjjo7RatFfFoP0MkQ51jfuFZBnVE2pRiaydKJ1G/rHZvnsrHAOcQALIi9sA5co5xenQdTugCvtb1cuf78Vf4g==}
++    cpu: [arm64]
++    os: [darwin]
++
++  '@img/sharp-libvips-darwin-x64@1.2.4':
++    resolution: {integrity: sha512-1IOd5xfVhlGwX+zXv2N93k0yMONvUlANylbJw1eTah8K/Jtpi15KC+WSiaX/nBmbm2HxRM1gZ0nSdjSsrZbGKg==}
++    cpu: [x64]
++    os: [darwin]
++
++  '@img/sharp-libvips-linux-arm64@1.2.4':
++    resolution: {integrity: sha512-excjX8DfsIcJ10x1Kzr4RcWe1edC9PquDRRPx3YVCvQv+U5p7Yin2s32ftzikXojb1PIFc/9Mt28/y+iRklkrw==}
++    cpu: [arm64]
++    os: [linux]
++
++  '@img/sharp-libvips-linux-arm@1.2.4':
++    resolution: {integrity: sha512-bFI7xcKFELdiNCVov8e44Ia4u2byA+l3XtsAj+Q8tfCwO6BQ8iDojYdvoPMqsKDkuoOo+X6HZA0s0q11ANMQ8A==}
++    cpu: [arm]
++    os: [linux]
++
++  '@img/sharp-libvips-linux-ppc64@1.2.4':
++    resolution: {integrity: sha512-FMuvGijLDYG6lW+b/UvyilUWu5Ayu+3r2d1S8notiGCIyYU/76eig1UfMmkZ7vwgOrzKzlQbFSuQfgm7GYUPpA==}
++    cpu: [ppc64]
++    os: [linux]
++
++  '@img/sharp-libvips-linux-riscv64@1.2.4':
++    resolution: {integrity: sha512-oVDbcR4zUC0ce82teubSm+x6ETixtKZBh/qbREIOcI3cULzDyb18Sr/Wcyx7NRQeQzOiHTNbZFF1UwPS2scyGA==}
++    cpu: [riscv64]
++    os: [linux]
++
++  '@img/sharp-libvips-linux-s390x@1.2.4':
++    resolution: {integrity: sha512-qmp9VrzgPgMoGZyPvrQHqk02uyjA0/QrTO26Tqk6l4ZV0MPWIW6LTkqOIov+J1yEu7MbFQaDpwdwJKhbJvuRxQ==}
++    cpu: [s390x]
++    os: [linux]
++
++  '@img/sharp-libvips-linux-x64@1.2.4':
++    resolution: {integrity: sha512-tJxiiLsmHc9Ax1bz3oaOYBURTXGIRDODBqhveVHonrHJ9/+k89qbLl0bcJns+e4t4rvaNBxaEZsFtSfAdquPrw==}
++    cpu: [x64]
++    os: [linux]
++
++  '@img/sharp-libvips-linuxmusl-arm64@1.2.4':
++    resolution: {integrity: sha512-FVQHuwx1IIuNow9QAbYUzJ+En8KcVm9Lk5+uGUQJHaZmMECZmOlix9HnH7n1TRkXMS0pGxIJokIVB9SuqZGGXw==}
++    cpu: [arm64]
++    os: [linux]
++
++  '@img/sharp-libvips-linuxmusl-x64@1.2.4':
++    resolution: {integrity: sha512-+LpyBk7L44ZIXwz/VYfglaX/okxezESc6UxDSoyo2Ks6Jxc4Y7sGjpgU9s4PMgqgjj1gZCylTieNamqA1MF7Dg==}
++    cpu: [x64]
++    os: [linux]
++
++  '@img/sharp-linux-arm64@0.34.5':
++    resolution: {integrity: sha512-bKQzaJRY/bkPOXyKx5EVup7qkaojECG6NLYswgktOZjaXecSAeCWiZwwiFf3/Y+O1HrauiE3FVsGxFg8c24rZg==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++    cpu: [arm64]
++    os: [linux]
++
++  '@img/sharp-linux-arm@0.34.5':
++    resolution: {integrity: sha512-9dLqsvwtg1uuXBGZKsxem9595+ujv0sJ6Vi8wcTANSFpwV/GONat5eCkzQo/1O6zRIkh0m/8+5BjrRr7jDUSZw==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++    cpu: [arm]
++    os: [linux]
++
++  '@img/sharp-linux-ppc64@0.34.5':
++    resolution: {integrity: sha512-7zznwNaqW6YtsfrGGDA6BRkISKAAE1Jo0QdpNYXNMHu2+0dTrPflTLNkpc8l7MUP5M16ZJcUvysVWWrMefZquA==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++    cpu: [ppc64]
++    os: [linux]
++
++  '@img/sharp-linux-riscv64@0.34.5':
++    resolution: {integrity: sha512-51gJuLPTKa7piYPaVs8GmByo7/U7/7TZOq+cnXJIHZKavIRHAP77e3N2HEl3dgiqdD/w0yUfiJnII77PuDDFdw==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++    cpu: [riscv64]
++    os: [linux]
++
++  '@img/sharp-linux-s390x@0.34.5':
++    resolution: {integrity: sha512-nQtCk0PdKfho3eC5MrbQoigJ2gd1CgddUMkabUj+rBevs8tZ2cULOx46E7oyX+04WGfABgIwmMC0VqieTiR4jg==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++    cpu: [s390x]
++    os: [linux]
++
++  '@img/sharp-linux-x64@0.34.5':
++    resolution: {integrity: sha512-MEzd8HPKxVxVenwAa+JRPwEC7QFjoPWuS5NZnBt6B3pu7EG2Ge0id1oLHZpPJdn3OQK+BQDiw9zStiHBTJQQQQ==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++    cpu: [x64]
++    os: [linux]
++
++  '@img/sharp-linuxmusl-arm64@0.34.5':
++    resolution: {integrity: sha512-fprJR6GtRsMt6Kyfq44IsChVZeGN97gTD331weR1ex1c1rypDEABN6Tm2xa1wE6lYb5DdEnk03NZPqA7Id21yg==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++    cpu: [arm64]
++    os: [linux]
++
++  '@img/sharp-linuxmusl-x64@0.34.5':
++    resolution: {integrity: sha512-Jg8wNT1MUzIvhBFxViqrEhWDGzqymo3sV7z7ZsaWbZNDLXRJZoRGrjulp60YYtV4wfY8VIKcWidjojlLcWrd8Q==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++    cpu: [x64]
++    os: [linux]
++
++  '@img/sharp-wasm32@0.34.5':
++    resolution: {integrity: sha512-OdWTEiVkY2PHwqkbBI8frFxQQFekHaSSkUIJkwzclWZe64O1X4UlUjqqqLaPbUpMOQk6FBu/HtlGXNblIs0huw==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++    cpu: [wasm32]
++
++  '@img/sharp-win32-arm64@0.34.5':
++    resolution: {integrity: sha512-WQ3AgWCWYSb2yt+IG8mnC6Jdk9Whs7O0gxphblsLvdhSpSTtmu69ZG1Gkb6NuvxsNACwiPV6cNSZNzt0KPsw7g==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++    cpu: [arm64]
++    os: [win32]
++
++  '@img/sharp-win32-ia32@0.34.5':
++    resolution: {integrity: sha512-FV9m/7NmeCmSHDD5j4+4pNI8Cp3aW+JvLoXcTUo0IqyjSfAZJ8dIUmijx1qaJsIiU+Hosw6xM5KijAWRJCSgNg==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++    cpu: [ia32]
++    os: [win32]
++
++  '@img/sharp-win32-x64@0.34.5':
++    resolution: {integrity: sha512-+29YMsqY2/9eFEiW93eqWnuLcWcufowXewwSNIT6UwZdUUCrM3oFjMWH/Z6/TMmb4hlFenmfAVbpWeup2jryCw==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++    cpu: [x64]
++    os: [win32]
++
++  '@noble/ciphers@2.4.0':
++    resolution: {integrity: sha512-AnjFn0Jv92laAkvMrghlFZq4qQCIN/4DxFV/eooqtC2YTjB7kBeLMS2T9KJX4Dn+ZVXLOwK0lSgqDtx9gvxtiw==}
++    engines: {node: '>= 20.19.0'}
++
++  '@noble/hashes@2.4.0':
++    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
++    engines: {node: '>= 20.19.0'}
++
++  '@opentelemetry/semantic-conventions@1.43.0':
++    resolution: {integrity: sha512-eSYWTm620tTk45EKSedaUL8MFYI8hW164hIXsgIHyxu3VobUB3fFCu5t0hQby6OoWRPsG1KkKUG2M5UadiLiVg==}
++    engines: {node: '>=14'}
++
++  '@standard-schema/spec@1.1.0':
++    resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
++
++  better-auth@1.7.7:
++    resolution: {integrity: sha512-Zhgxi/c5ylmfB/sX+nwnBbsFf/j6k0L8DvL6CJXZSrXgxc5pPMC/e7j812zNd4L4B4ELmdURCPw3X8nAOUdcjw==}
++    peerDependencies:
++      '@lynx-js/react': '*'
++      '@prisma/client': ^5.0.0 || ^6.0.0 || ^7.0.0
++      '@sveltejs/kit': ^2.0.0
++      '@tanstack/react-start': ^1.0.0
++      '@tanstack/solid-start': ^1.0.0
++      drizzle-kit: '>=0.31.4 || >=1.0.0-beta.1'
++      drizzle-orm: ^0.45.2 || >=1.0.0-rc.1 <2.0.0
++      mongodb: ^6.0.0 || ^7.0.0
++      mysql2: ^3.0.0
++      next: ^14.0.0 || ^15.0.0 || ^16.0.0
++      pg: ^8.0.0
++      prisma: ^5.0.0 || ^6.0.0 || ^7.0.0
++      react: ^18.0.0 || ^19.0.0
++      react-dom: ^18.0.0 || ^19.0.0
++      solid-js: ^1.0.0
++      svelte: ^4.0.0 || ^5.0.0
++      vitest: ^2.0.0 || ^3.0.0 || ^4.0.0 || ^5.0.0
++      vue: ^3.0.0
++    peerDependenciesMeta:
++      '@lynx-js/react':
++        optional: true
++      '@prisma/client':
++        optional: true
++      '@sveltejs/kit':
++        optional: true
++      '@tanstack/react-start':
++        optional: true
++      '@tanstack/solid-start':
++        optional: true
++      drizzle-kit:
++        optional: true
++      drizzle-orm:
++        optional: true
++      mongodb:
++        optional: true
++      mysql2:
++        optional: true
++      next:
++        optional: true
++      pg:
++        optional: true
++      prisma:
++        optional: true
++      react:
++        optional: true
++      react-dom:
++        optional: true
++      solid-js:
++        optional: true
++      svelte:
++        optional: true
++      vitest:
++        optional: true
++      vue:
++        optional: true
++
++  better-call@1.4.0:
++    resolution: {integrity: sha512-bBKOT4vv1kZLDgxVePdilk/Jwkn+dtRRsmi3DzHcDP+WnswyVl6dR59l2HEeP/0cB+bDoopASAesWDPIdd/zZA==}
++    peerDependencies:
++      zod: ^4.0.0
++    peerDependenciesMeta:
++      zod:
++        optional: true
++
++  caniuse-lite@1.0.30001816:
++    resolution: {integrity: sha512-+8Yx7BXCoqk6IF8yTicjfUR6D/ldJzdlsodlEOiOSPmhK844WIgk67/zIQaGAOxNkZyyvBlrRFnLvqKIoqbAFw==}
++
++  defu@6.1.7:
++    resolution: {integrity: sha512-7z22QmUWiQ/2d0KkdYmANbRUVABpZ9SNYyH5vx6PZ+nE5bcC0l7uFvEfHlyld/HcGBFTL536ClDt3DEcSlEJAQ==}
++
++  detect-libc@2.1.2:
++    resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
++    engines: {node: '>=8'}
++
++  jose@6.2.12:
++    resolution: {integrity: sha512-9NiFmJEex0sy2Dk58j2UGBSHgUs2ypF9eZSu4L6vjOX3Dp96Sw1F3uL+H+D1sx02jZZdzUT0HgvCy59CuvXcWw==}
++
++  kysely@0.29.6:
++    resolution: {integrity: sha512-hHaB8C/rfzDDtr/t8YZwxAuPJTT0zHyaPoVzcXwDYhYNAgH/4sIfVhi/XLLIY+bL/FqaIJnjATDbi8ObSELmxg==}
++    engines: {node: '>=22.0.0'}
++
++  nanoid@3.3.20:
++    resolution: {integrity: sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ==}
++    engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
++    hasBin: true
++
++  nanostores@1.5.5:
++    resolution: {integrity: sha512-FixtE239Gl6Gz0ZGCK0WzvNwObNCIwVT+L7zQcf1QgcA6AzBxblzqe9OT88qiucNkhsjSOqiogSaF5jVbJiqSA==}
++    engines: {node: ^20.0.0 || >=22.0.0}
++
++  rou3@0.9.2:
++    resolution: {integrity: sha512-3SOzvaAg8rkHrXtRjpCvCvbyO5to9oOO27Z/XqHEYXfMRVSw/qMIVdmaOk9W2lcRLtR6dlqTjo9hDeJk70QBYQ==}
++
++  semver@7.8.5:
++    resolution: {integrity: sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==}
++    engines: {node: '>=10'}
++    hasBin: true
++
++  set-cookie-parser@3.1.3:
++    resolution: {integrity: sha512-xletSdAI5efyVJjsatBbzDkXl3M/Zmad3xfnQe7ZXuBB0yNwW7C2WFsNGjdRNfZunmNHQuX79xs/ACMTLCdcew==}
++
++  sharp@0.34.5:
++    resolution: {integrity: sha512-Ou9I5Ft9WNcCbXrU9cMgPBcCK8LiwLqcbywW3t4oDV37n1pzpuNLsYiAV8eODnjbtQlSDwZ2cUEeQz4E54Hltg==}
++    engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
++
++  source-map-js@1.2.2:
++    resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
++    engines: {node: '>=0.10.0'}
++
++  zod@4.6.7:
++    resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
++
+   '@ably/msgpack-js@0.4.1':
+     resolution: {integrity: sha512-Sjxj6SOr17hExAVrsycN7u6oV4PhZcK7Z2S8dM71CH/butgO47cSo/TL6FJPCXUyDAzKkOWjMUpJGyZkEpyu4Q==}
+ 
+@@ -1755,6 +2122,14 @@ packages:
      resolution: {integrity: sha512-Wi4qnBT6shRRMXuuTgjMFTU5mu2KFWisgcigEMPptjPGUtJvBVi4PTGgS64qsLoUk/obqDAyOBOfEtRZ2ddC2w==}
      engines: {node: '>=18.0.0'}
  
@@ -10896,7 +11320,301 @@ index 803fd87..55bf05a 100644
    '@aws-sdk/client-sso@3.940.0':
      resolution: {integrity: sha512-SdqJGWVhmIURvCSgkDditHRO+ozubwZk9aCX9MK8qxyOndhobCndW1ozl3hX9psvMAo9Q4bppjuqy/GHWpjB+A==}
      engines: {node: '>=18.0.0'}
-@@ -14656,6 +14670,96 @@ snapshots:
+@@ -14452,6 +14827,293 @@ packages:
+ 
+ snapshots:
+ 
++  '@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)':
++    dependencies:
++      '@better-auth/utils': 0.4.2
++      '@better-fetch/fetch': 1.3.2
++      '@opentelemetry/semantic-conventions': 1.43.0
++      '@standard-schema/spec': 1.1.0
++      better-call: 1.4.0(zod@4.6.7)
++      jose: 6.2.12
++      kysely: 0.29.6
++      nanostores: 1.5.5
++      zod: 4.6.7
++
++  '@better-auth/drizzle-adapter@1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)':
++    dependencies:
++      '@better-auth/core': 1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)
++      '@better-auth/utils': 0.4.2
++
++  '@better-auth/kysely-adapter@1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)(kysely@0.29.6)':
++    dependencies:
++      '@better-auth/core': 1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)
++      '@better-auth/utils': 0.4.2
++    optionalDependencies:
++      kysely: 0.29.6
++
++  '@better-auth/memory-adapter@1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)':
++    dependencies:
++      '@better-auth/core': 1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)
++      '@better-auth/utils': 0.4.2
++
++  '@better-auth/mongo-adapter@1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)':
++    dependencies:
++      '@better-auth/core': 1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)
++      '@better-auth/utils': 0.4.2
++
++  '@better-auth/prisma-adapter@1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)(@prisma/client@6.16.3)':
++    dependencies:
++      '@better-auth/core': 1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)
++      '@better-auth/utils': 0.4.2
++    optionalDependencies:
++      '@prisma/client': 6.16.3
++
++  '@better-auth/telemetry@1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)':
++    dependencies:
++      '@better-auth/core': 1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)
++      '@better-auth/utils': 0.4.2
++      '@better-fetch/fetch': 1.3.2
++
++  '@better-auth/utils@0.4.2':
++    dependencies:
++      '@noble/hashes': 2.4.0
++
++  '@better-auth/utils@0.5.0':
++    dependencies:
++      '@noble/hashes': 2.4.0
++
++  '@better-fetch/fetch@1.3.2': {}
++
++  '@emnapi/runtime@1.11.3':
++    dependencies:
++      tslib: 2.8.1
++    optional: true
++
++  '@img/colour@1.1.0':
++    optional: true
++
++  '@img/sharp-darwin-arm64@0.34.5':
++    optionalDependencies:
++      '@img/sharp-libvips-darwin-arm64': 1.2.4
++    optional: true
++
++  '@img/sharp-darwin-x64@0.34.5':
++    optionalDependencies:
++      '@img/sharp-libvips-darwin-x64': 1.2.4
++    optional: true
++
++  '@img/sharp-libvips-darwin-arm64@1.2.4':
++    optional: true
++
++  '@img/sharp-libvips-darwin-x64@1.2.4':
++    optional: true
++
++  '@img/sharp-libvips-linux-arm64@1.2.4':
++    optional: true
++
++  '@img/sharp-libvips-linux-arm@1.2.4':
++    optional: true
++
++  '@img/sharp-libvips-linux-ppc64@1.2.4':
++    optional: true
++
++  '@img/sharp-libvips-linux-riscv64@1.2.4':
++    optional: true
++
++  '@img/sharp-libvips-linux-s390x@1.2.4':
++    optional: true
++
++  '@img/sharp-libvips-linux-x64@1.2.4':
++    optional: true
++
++  '@img/sharp-libvips-linuxmusl-arm64@1.2.4':
++    optional: true
++
++  '@img/sharp-libvips-linuxmusl-x64@1.2.4':
++    optional: true
++
++  '@img/sharp-linux-arm64@0.34.5':
++    optionalDependencies:
++      '@img/sharp-libvips-linux-arm64': 1.2.4
++    optional: true
++
++  '@img/sharp-linux-arm@0.34.5':
++    optionalDependencies:
++      '@img/sharp-libvips-linux-arm': 1.2.4
++    optional: true
++
++  '@img/sharp-linux-ppc64@0.34.5':
++    optionalDependencies:
++      '@img/sharp-libvips-linux-ppc64': 1.2.4
++    optional: true
++
++  '@img/sharp-linux-riscv64@0.34.5':
++    optionalDependencies:
++      '@img/sharp-libvips-linux-riscv64': 1.2.4
++    optional: true
++
++  '@img/sharp-linux-s390x@0.34.5':
++    optionalDependencies:
++      '@img/sharp-libvips-linux-s390x': 1.2.4
++    optional: true
++
++  '@img/sharp-linux-x64@0.34.5':
++    optionalDependencies:
++      '@img/sharp-libvips-linux-x64': 1.2.4
++    optional: true
++
++  '@img/sharp-linuxmusl-arm64@0.34.5':
++    optionalDependencies:
++      '@img/sharp-libvips-linuxmusl-arm64': 1.2.4
++    optional: true
++
++  '@img/sharp-linuxmusl-x64@0.34.5':
++    optionalDependencies:
++      '@img/sharp-libvips-linuxmusl-x64': 1.2.4
++    optional: true
++
++  '@img/sharp-wasm32@0.34.5':
++    dependencies:
++      '@emnapi/runtime': 1.11.3
++    optional: true
++
++  '@img/sharp-win32-arm64@0.34.5':
++    optional: true
++
++  '@img/sharp-win32-ia32@0.34.5':
++    optional: true
++
++  '@img/sharp-win32-x64@0.34.5':
++    optional: true
++
++  '@next/env@15.3.8': {}
++
++  better-auth@1.7.7(@prisma/client@6.16.3)(next@15.3.8(react-dom@19.0.3(react@19.0.3))(react@19.0.3))(react-dom@19.0.3(react@19.0.3))(react@19.0.3):
++    dependencies:
++      '@better-auth/core': 1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5)
++      '@better-auth/drizzle-adapter': 1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)
++      '@better-auth/kysely-adapter': 1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)(kysely@0.29.6)
++      '@better-auth/memory-adapter': 1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)
++      '@better-auth/mongo-adapter': 1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)
++      '@better-auth/prisma-adapter': 1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)(@prisma/client@6.16.3)
++      '@better-auth/telemetry': 1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-call@1.4.0(zod@4.1.12))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.5))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)
++      '@better-auth/utils': 0.4.2
++      '@better-fetch/fetch': 1.3.2
++      '@noble/ciphers': 2.4.0
++      '@noble/hashes': 2.4.0
++      better-call: 1.4.0(zod@4.6.7)
++      defu: 6.1.7
++      jose: 6.2.12
++      kysely: 0.29.6
++      nanostores: 1.5.5
++      zod: 4.6.7
++    optionalDependencies:
++      '@prisma/client': 6.16.3
++      next: 15.3.8(react-dom@19.0.3(react@19.0.3))(react@19.0.3)
++      react: 19.0.3
++      react-dom: 19.0.3(react@19.0.3)
++    transitivePeerDependencies:
++      - '@opentelemetry/api'
++
++  better-call@1.4.0(zod@4.6.7):
++    dependencies:
++      '@better-auth/utils': 0.5.0
++      '@better-fetch/fetch': 1.3.2
++      rou3: 0.9.2
++      set-cookie-parser: 3.1.3
++    optionalDependencies:
++      zod: 4.6.7
++
++  detect-libc@2.1.2:
++    optional: true
++
++  jose@6.2.12: {}
++
++  kysely@0.29.6: {}
++
++  nanoid@3.3.20: {}
++
++  nanostores@1.5.5: {}
++
++  next@15.3.8(react-dom@19.0.3(react@19.0.3))(react@19.0.3):
++    dependencies:
++      '@next/env': 15.3.8
++      '@swc/counter': 0.1.3
++      '@swc/helpers': 0.5.15
++      busboy: 1.6.0
++      caniuse-lite: 1.0.30001816
++      postcss: 8.4.31
++      react: 19.0.3
++      react-dom: 19.0.3(react@19.0.3)
++      styled-jsx: 5.1.6(react@19.0.3)
++    optionalDependencies:
++      '@next/swc-darwin-arm64': 15.3.5
++      '@next/swc-darwin-x64': 15.3.5
++      '@next/swc-linux-arm64-gnu': 15.3.5
++      '@next/swc-linux-arm64-musl': 15.3.5
++      '@next/swc-linux-x64-gnu': 15.3.5
++      '@next/swc-linux-x64-musl': 15.3.5
++      '@next/swc-win32-arm64-msvc': 15.3.5
++      '@next/swc-win32-x64-msvc': 15.3.5
++      sharp: 0.34.5
++    transitivePeerDependencies:
++      - '@babel/core'
++      - babel-plugin-macros
++
++  picocolors@1.1.1: {}
++
++  semver@7.8.5:
++    optional: true
++
++  set-cookie-parser@3.1.3: {}
++
++  sharp@0.34.5:
++    dependencies:
++      '@img/colour': 1.1.0
++      detect-libc: 2.1.2
++      semver: 7.8.5
++    optionalDependencies:
++      '@img/sharp-darwin-arm64': 0.34.5
++      '@img/sharp-darwin-x64': 0.34.5
++      '@img/sharp-libvips-darwin-arm64': 1.2.4
++      '@img/sharp-libvips-darwin-x64': 1.2.4
++      '@img/sharp-libvips-linux-arm': 1.2.4
++      '@img/sharp-libvips-linux-arm64': 1.2.4
++      '@img/sharp-libvips-linux-ppc64': 1.2.4
++      '@img/sharp-libvips-linux-riscv64': 1.2.4
++      '@img/sharp-libvips-linux-s390x': 1.2.4
++      '@img/sharp-libvips-linux-x64': 1.2.4
++      '@img/sharp-libvips-linuxmusl-arm64': 1.2.4
++      '@img/sharp-libvips-linuxmusl-x64': 1.2.4
++      '@img/sharp-linux-arm': 0.34.5
++      '@img/sharp-linux-arm64': 0.34.5
++      '@img/sharp-linux-ppc64': 0.34.5
++      '@img/sharp-linux-riscv64': 0.34.5
++      '@img/sharp-linux-s390x': 0.34.5
++      '@img/sharp-linux-x64': 0.34.5
++      '@img/sharp-linuxmusl-arm64': 0.34.5
++      '@img/sharp-linuxmusl-x64': 0.34.5
++      '@img/sharp-wasm32': 0.34.5
++      '@img/sharp-win32-arm64': 0.34.5
++      '@img/sharp-win32-ia32': 0.34.5
++      '@img/sharp-win32-x64': 0.34.5
++    optional: true
++
++  source-map-js@1.2.2: {}
++
++  streamsearch@1.1.0: {}
++
++  styled-jsx@5.1.6(react@19.0.3):
++    dependencies:
++      client-only: 0.0.1
++      react: 19.0.3
++
++  tslib@2.8.1: {}
++
++  zod@4.1.12: {}
++
++  zod@4.6.7: {}
++
+   '@ably/msgpack-js@0.4.1':
+     dependencies:
+       bops: 1.0.1
+@@ -14656,6 +15318,96 @@ snapshots:
      transitivePeerDependencies:
        - aws-crt
  
@@ -11507,3 +12225,1660 @@ index 12d4873..092ae7e 100644
        firstName: user.firstName,
        lastName: user.lastName,
        imageUrl: user.imageUrl,
+diff --git a/eslint.config.mjs b/eslint.config.mjs
+index 594fca8..2dc88a0 100644
+--- a/eslint.config.mjs
++++ b/eslint.config.mjs
+@@ -250,6 +250,13 @@ export default tsEslint.config(
+       "@typescript-eslint/no-restricted-imports": [
+         "error",
+         {
++          patterns: [
++            {
++              group: ["better-auth", "better-auth/*", "@better-auth/*"],
++              message:
++                "Server authentication SDKs belong in packages/platform/src/auth/better-auth.",
++            },
++          ],
+           paths: [
+             {
+               name: "telnyx",
+diff --git a/packages/configuration/src/better-auth.configuration.ts b/packages/configuration/src/better-auth.configuration.ts
+new file mode 100644
+index 0000000..434cc3c
+--- /dev/null
++++ b/packages/configuration/src/better-auth.configuration.ts
+@@ -0,0 +1,16 @@
++/** Lazy: importing configuration must not change the active Clerk startup contract. */
++export function readBetterAuthConfiguration() {
++  const secret = process.env.BETTER_AUTH_SECRET;
++  if (!secret || secret.length < 32)
++    throw new Error("BETTER_AUTH_SECRET must contain at least 32 characters");
++  return {
++    secret,
++    baseURL: "https://calls-api.connectxmedia.com",
++    trustedOrigins: [
++      "https://calls-api.connectxmedia.com",
++      "https://calls.connectxmedia.com",
++      "https://os.connectxmedia.com",
++      "https://marketing.connectxmedia.com",
++    ],
++  };
++}
+diff --git a/packages/configuration/src/index.ts b/packages/configuration/src/index.ts
+index b88fe67..26dfcdd 100644
+--- a/packages/configuration/src/index.ts
++++ b/packages/configuration/src/index.ts
+@@ -1 +1,2 @@
+ export * from "./api.configuration";
++export * from "./better-auth.configuration";
+diff --git a/packages/database/src/database/repositories/auth-session.repository.ts b/packages/database/src/database/repositories/auth-session.repository.ts
+new file mode 100644
+index 0000000..79103c9
+--- /dev/null
++++ b/packages/database/src/database/repositories/auth-session.repository.ts
+@@ -0,0 +1,65 @@
++import { Injectable } from "@nestjs/common";
++import { Prisma } from "@prisma/client";
++import { PrismaService } from "../prisma.service";
++
++/** Persistence projection only; enrollment and access decisions live in services. */
++@Injectable()
++export class AuthSessionRepository {
++  constructor(private readonly prisma: PrismaService) {}
++
++  async findPrincipalSnapshot(sessionId: string, userId: string, now: Date) {
++    return this.prisma.$transaction(
++      async (tx) => {
++        const session = await tx.authSession.findFirst({
++          where: { id: sessionId, userId, expiresAt: { gt: now } },
++          select: {
++            id: true,
++            userId: true,
++            expiresAt: true,
++            activeOrganizationId: true,
++            user: {
++              select: {
++                id: true,
++                authEmail: true,
++                authName: true,
++                authEmailVerified: true,
++                imageUrl: true,
++                blockedAt: true,
++                encryptionKey: true,
++                phoneRequired: true,
++                phoneVerified: true,
++                phoneNumber: true,
++                canCall: true,
++                emails: {
++                  select: { email: true, status: true, isPrimary: true },
++                },
++              },
++            },
++          },
++        });
++        if (!session) return null;
++        const membership =
++          session.activeOrganizationId === null
++            ? null
++            : await tx.organizationMembership.findFirst({
++                where: { organizationId: session.activeOrganizationId, userId },
++                select: {
++                  userId: true,
++                  organizationId: true,
++                  role: true,
++                  organization: {
++                    select: {
++                      id: true,
++                      name: true,
++                      slug: true,
++                      imageUrl: true,
++                    },
++                  },
++                },
++              });
++        return { session, membership };
++      },
++      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
++    );
++  }
++}
+diff --git a/packages/frontend-shared/package.json b/packages/frontend-shared/package.json
+index 9a2fbb6..4684ea0 100644
+--- a/packages/frontend-shared/package.json
++++ b/packages/frontend-shared/package.json
+@@ -87,7 +87,8 @@
+     "uuid": "^11.0.3",
+     "vaul": "^1.1.2",
+     "zod": "^4.1.8",
+-    "zustand": "^5.0.2"
++    "zustand": "^5.0.2",
++    "better-auth": "1.7.7"
+   },
+   "devDependencies": {
+     "@faker-js/faker": "^9.3.0",
+diff --git a/packages/platform/src/auth/auth-principal.types.ts b/packages/platform/src/auth/auth-principal.types.ts
+new file mode 100644
+index 0000000..c543bc1
+--- /dev/null
++++ b/packages/platform/src/auth/auth-principal.types.ts
+@@ -0,0 +1,35 @@
++import type { CurrentUserData } from "./ownership.types";
++
++/** Provider-neutral values. No bearer, metadata, Clerk ID or DB secret crosses this boundary. */
++export interface VerifiedAuthSession {
++  id: string;
++  userId: string;
++}
++export interface AuthPrincipalDto {
++  user: {
++    id: string;
++    email: string;
++    emailVerified: boolean;
++    name: string;
++    imageUrl: string | null;
++  };
++  organization: {
++    id: string;
++    name: string;
++    slug: string | null;
++    imageUrl: string | null;
++    role: "org:admin" | "org:member";
++  } | null;
++  phoneAccess: { required: boolean; verified: boolean };
++  expiresAt: string;
++}
++export interface RingeeAuthPrincipal extends CurrentUserData {
++  sessionId: string;
++  activeOrgId: string | null;
++  activeOrgRole: "org:admin" | "org:member" | null;
++  canCall: boolean;
++  dto: AuthPrincipalDto;
++}
++export interface AuthSessionReader {
++  getVerifiedSession(headers: Headers): Promise<VerifiedAuthSession | null>;
++}
+diff --git a/packages/platform/src/auth/better-auth/better-auth.runtime.ts b/packages/platform/src/auth/better-auth/better-auth.runtime.ts
+new file mode 100644
+index 0000000..6b82a88
+--- /dev/null
++++ b/packages/platform/src/auth/better-auth/better-auth.runtime.ts
+@@ -0,0 +1,24 @@
++import { readBetterAuthConfiguration } from "@ringee/configuration";
++import type { AuthSessionReader } from "../auth-principal.types";
++
++export interface BetterAuthRuntime extends AuthSessionReader {
++  handle(request: Request): Promise<Response>;
++}
++
++/** Explicit opt-in factory; not registered in the active Clerk module. */
++export async function createBetterAuthRuntime(
++  databaseClient: unknown,
++): Promise<BetterAuthRuntime> {
++  const configuration = readBetterAuthConfiguration();
++  // The .cjs asset owns native import() through the CommonJS Nest compilation.
++  const loader = require("./native-loader.cjs") as {
++    loadRuntime(): Promise<{
++      createRuntime(
++        client: unknown,
++        config: typeof configuration,
++      ): BetterAuthRuntime;
++    }>;
++  };
++  const runtime = await loader.loadRuntime();
++  return runtime.createRuntime(databaseClient, configuration);
++}
+diff --git a/packages/platform/src/auth/better-auth/hashed-session-adapter.mjs b/packages/platform/src/auth/better-auth/hashed-session-adapter.mjs
+new file mode 100644
+index 0000000..6ebdb27
+--- /dev/null
++++ b/packages/platform/src/auth/better-auth/hashed-session-adapter.mjs
+@@ -0,0 +1,172 @@
++import { createHash } from "node:crypto";
++
++const PREFIX = "h1.";
++const METHODS = new Set([
++  "create",
++  "findOne",
++  "findMany",
++  "update",
++  "delete",
++  "deleteMany",
++  "count",
++]);
++export class UnsupportedSessionOperation extends Error {
++  constructor() {
++    super("Session operation requires the explicit management boundary");
++    this.name = "UnsupportedSessionOperation";
++  }
++}
++export function digestSessionToken(token) {
++  if (
++    typeof token !== "string" ||
++    token.length < 16 ||
++    token.length > 512 ||
++    token.startsWith(PREFIX)
++  ) {
++    throw new UnsupportedSessionOperation();
++  }
++  return (
++    PREFIX +
++    createHash("sha256")
++      .update("ringee:session:v1\0")
++      .update(token)
++      .digest("hex")
++  );
++}
++
++function tokenPredicate(where) {
++  if (!Array.isArray(where) || !where.length)
++    throw new UnsupportedSessionOperation();
++  const originals = new Map();
++  let constrained = false;
++  const transformed = where.map((clause) => {
++    // No OR branch may select a row whose original token was never presented.
++    if (clause.connector !== undefined && clause.connector !== "AND")
++      throw new UnsupportedSessionOperation();
++    if (clause.field !== "token") return { ...clause };
++    const operator = clause.operator ?? "eq";
++    if (clause.mode === "insensitive" || !["eq", "in"].includes(operator))
++      throw new UnsupportedSessionOperation();
++    const values = operator === "in" ? clause.value : [clause.value];
++    if (!Array.isArray(values) || !values.length)
++      throw new UnsupportedSessionOperation();
++    const digests = values.map((raw) => {
++      const digest = digestSessionToken(raw);
++      originals.set(digest, raw);
++      return digest;
++    });
++    constrained = true;
++    return { ...clause, value: operator === "in" ? digests : digests[0] };
++  });
++  if (!constrained) throw new UnsupportedSessionOperation();
++  return { transformed, originals };
++}
++function restore(row, originals) {
++  if (row == null) return row;
++  const original = originals.get(row.token);
++  if (original === undefined) throw new UnsupportedSessionOperation();
++  return { ...row, token: original };
++}
++
++/**
++ * Pinned 1.7.7 outer wrapper of a Better Auth DBAdapter. All raw-token maps are
++ * per invocation. Never persist them, cache them, or infer a bearer from a hash.
++ */
++export function wrapSessionAdapter(adapter) {
++  return new Proxy(adapter, {
++    get(target, property) {
++      if (
++        property === "transaction" &&
++        typeof target.transaction === "function"
++      ) {
++        return (callback) =>
++          target.transaction((tx) => callback(wrapSessionAdapter(tx)));
++      }
++      const value = Reflect.get(target, property);
++      if (typeof value !== "function") return value;
++      return async (args, ...rest) => {
++        // Core 1.7.7 always supplies these shallow joins, even without experimental joins.
++        // Any other shape could expose a nested session hash outside restoration.
++        if (args?.join != null) {
++          const keys = Object.keys(args.join);
++          const allowed =
++            property === "findOne" &&
++            ((args.model === "session" &&
++              keys.length === 1 &&
++              keys[0] === "user" &&
++              args.join.user === true) ||
++              (args.model === "user" &&
++                keys.length === 1 &&
++                keys[0] === "account" &&
++                args.join.account === true));
++          if (keys.length && !allowed) throw new UnsupportedSessionOperation();
++        }
++        if (args?.model !== "session") return value.call(target, args, ...rest);
++        if (
++          !METHODS.has(property) ||
++          args.select ||
++          args.sortBy?.field === "token"
++        )
++          throw new UnsupportedSessionOperation();
++        if (property === "create") {
++          const raw = args.data?.token;
++          const digest = digestSessionToken(raw);
++          const row = await value.call(
++            target,
++            { ...args, data: { ...args.data, token: digest } },
++            ...rest,
++          );
++          return restore(row, new Map([[digest, raw]]));
++        }
++        const { transformed, originals } = tokenPredicate(args.where);
++        const call = { ...args, where: transformed };
++        if (
++          property === "update" &&
++          Object.hasOwn(args.update ?? {}, "token")
++        ) {
++          const raw = args.update.token;
++          const digest = digestSessionToken(raw);
++          call.update = { ...args.update, token: digest };
++          // A rotation response must contain the new token, never the old one.
++          originals.clear();
++          originals.set(digest, raw);
++        }
++        const result = await value.call(target, call, ...rest);
++        if (property === "findMany")
++          return result.map((row) => restore(row, originals));
++        if (["findOne", "update"].includes(property))
++          return restore(result, originals);
++        // Delete/count methods return no session objects in the pinned contract.
++        return result;
++      };
++    },
++  });
++}
++
++export const DISABLED_SESSION_ROUTES = [
++  "/list-sessions",
++  "/revoke-session",
++  "/revoke-sessions",
++  "/revoke-other-sessions",
++  "/change-password",
++  "/reset-password",
++  "/delete-user",
++];
++export function hashedSessionAdapter(factory) {
++  return (options) => {
++    // These features carry raw tokens or depend on token-based enumeration/hooks.
++    if (
++      options.secondaryStorage ||
++      options.experimental?.joins ||
++      options.session?.cookieCache?.enabled ||
++      options.plugins?.length ||
++      options.databaseHooks?.session ||
++      DISABLED_SESSION_ROUTES.some(
++        (path) => !options.disabledPaths?.includes(path),
++      )
++    ) {
++      throw new UnsupportedSessionOperation();
++    }
++    return wrapSessionAdapter(factory(options));
++  };
++}
+diff --git a/packages/platform/src/auth/better-auth/native-loader.cjs b/packages/platform/src/auth/better-auth/native-loader.cjs
+new file mode 100644
+index 0000000..8c8902e
+--- /dev/null
++++ b/packages/platform/src/auth/better-auth/native-loader.cjs
+@@ -0,0 +1,2 @@
++// Copied verbatim to compiled output: TypeScript must not rewrite this import.
++exports.loadRuntime = () => import("./runtime.mjs");
+diff --git a/packages/platform/src/auth/better-auth/runtime.mjs b/packages/platform/src/auth/better-auth/runtime.mjs
+new file mode 100644
+index 0000000..e175b1a
+--- /dev/null
++++ b/packages/platform/src/auth/better-auth/runtime.mjs
+@@ -0,0 +1,173 @@
++import { betterAuth } from "better-auth/minimal";
++import { prismaAdapter } from "better-auth/adapters/prisma";
++import {
++  hashedSessionAdapter,
++  DISABLED_SESSION_ROUTES,
++} from "./hashed-session-adapter.mjs";
++
++// Recovery/OAuth verification is deliberately disabled until the protected store
++// and lifecycle transport are composed. Column names alone do not encrypt values.
++function credentialOnlyAdapter(factory) {
++  function wrap(adapter) {
++    return new Proxy(adapter, {
++      get(target, property) {
++        if (
++          property === "transaction" &&
++          typeof target.transaction === "function"
++        ) {
++          return (callback) => target.transaction((tx) => callback(wrap(tx)));
++        }
++        const value = Reflect.get(target, property);
++        if (typeof value !== "function") return value;
++        return (args, ...rest) => {
++          if (args?.model === "verification")
++            throw new Error("Verification lifecycle is disabled");
++          return value.call(target, args, ...rest);
++        };
++      },
++    });
++  }
++  return (options) => wrap(factory(options));
++}
++
++const BASE_URL = "https://calls-api.connectxmedia.com";
++const ORIGINS = new Set([
++  BASE_URL,
++  "https://calls.connectxmedia.com",
++  "https://os.connectxmedia.com",
++  "https://marketing.connectxmedia.com",
++]);
++const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
++
++export function createRuntime(client, configuration) {
++  if (
++    configuration?.baseURL !== BASE_URL ||
++    typeof configuration.secret !== "string" ||
++    configuration.secret.length < 32 ||
++    !Array.isArray(configuration.trustedOrigins) ||
++    !configuration.trustedOrigins.length ||
++    configuration.trustedOrigins.some((origin) => !ORIGINS.has(origin))
++  ) {
++    throw new Error("Invalid Better Auth configuration");
++  }
++  const auth = betterAuth({
++    baseURL: BASE_URL,
++    basePath: "/api/auth",
++    secret: configuration.secret,
++    trustedOrigins: [...configuration.trustedOrigins],
++    database: credentialOnlyAdapter(
++      hashedSessionAdapter(
++        prismaAdapter(client, { provider: "postgresql", transaction: true }),
++      ),
++    ),
++    user: {
++      modelName: "User",
++      fields: {
++        name: "authName",
++        email: "authEmail",
++        emailVerified: "authEmailVerified",
++        image: "imageUrl",
++      },
++    },
++    session: {
++      modelName: "AuthSession",
++      fields: { token: "tokenHash" },
++      cookieCache: { enabled: false },
++      additionalFields: {
++        activeOrganizationId: { type: "string", required: false, input: false },
++      },
++    },
++    account: {
++      modelName: "AuthAccount",
++      fields: {
++        password: "passwordHash",
++        accessToken: "accessTokenEncrypted",
++        refreshToken: "refreshTokenEncrypted",
++        idToken: "idTokenEncrypted",
++      },
++      accountLinking: { enabled: false },
++    },
++    verification: {
++      modelName: "AuthVerification",
++      fields: { identifier: "identifierHash", value: "valueEncrypted" },
++    },
++    emailAndPassword: {
++      enabled: true,
++      disableSignUp: true,
++      requireEmailVerification: true,
++    },
++    emailVerification: { sendOnSignIn: false, sendOnSignUp: false },
++    advanced: {
++      database: { generateId: "uuid" },
++      cookiePrefix: "ai-business-os",
++      useSecureCookies: true,
++      crossSubDomainCookies: { enabled: true, domain: "connectxmedia.com" },
++      defaultCookieAttributes: {
++        secure: true,
++        httpOnly: true,
++        sameSite: "lax",
++        path: "/",
++      },
++      disableOriginCheck: false,
++      disableCSRFCheck: false,
++    },
++    disabledPaths: DISABLED_SESSION_ROUTES,
++    telemetry: { enabled: false },
++    logger: { disabled: true },
++  });
++  return Object.freeze({
++    async getVerifiedSession(headers) {
++      const result = await auth.api.getSession({ headers });
++      if (
++        !result ||
++        !UUID.test(result.session.id) ||
++        !UUID.test(result.user.id) ||
++        result.session.userId !== result.user.id ||
++        new Date(result.session.expiresAt).getTime() <= Date.now()
++      )
++        return null;
++      return { id: result.session.id, userId: result.user.id };
++    },
++    async handle(request) {
++      const url = new URL(request.url);
++      if (
++        url.origin !== BASE_URL ||
++        request.method !== "POST" ||
++        !["/api/auth/sign-in/email", "/api/auth/sign-out"].includes(
++          url.pathname,
++        ) ||
++        url.search
++      ) {
++        return new Response(null, {
++          status: 404,
++          headers: { "cache-control": "no-store" },
++        });
++      }
++      if (
++        !configuration.trustedOrigins.includes(request.headers.get("origin"))
++      ) {
++        return new Response(null, {
++          status: 403,
++          headers: { "cache-control": "no-store" },
++        });
++      }
++      const response = await auth.handler(request);
++      if (!response.ok) {
++        // Stable errors do not echo provider account, session, email or token data.
++        return Response.json(
++          { error: "Authentication failed" },
++          { status: response.status, headers: { "cache-control": "no-store" } },
++        );
++      }
++      // Keep signed HttpOnly cookies while removing Better Auth's JSON bearer.
++      const headers = new Headers(response.headers);
++      headers.delete("content-length");
++      headers.set("content-type", "application/json");
++      headers.set("cache-control", "no-store");
++      return new Response(JSON.stringify({ success: true }), {
++        status: response.status,
++        headers,
++      });
++    },
++  });
++}
+diff --git a/packages/platform/src/auth/index.ts b/packages/platform/src/auth/index.ts
+index e9e6e22..682aa13 100644
+--- a/packages/platform/src/auth/index.ts
++++ b/packages/platform/src/auth/index.ts
+@@ -5,3 +5,5 @@ export * from "./public.decorator";
+ export * from "./clerk";
+ export * from "./ownership.types";
+ export * from "./org-admin.guard";
++export * from "./auth-principal.types";
++export * from "./better-auth/better-auth.runtime";
+diff --git a/packages/services/src/services/auth-principal.service.spec.ts b/packages/services/src/services/auth-principal.service.spec.ts
+new file mode 100644
+index 0000000..a487cb3
+--- /dev/null
++++ b/packages/services/src/services/auth-principal.service.spec.ts
+@@ -0,0 +1,175 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import type { AuthSessionRepository } from "@ringee/database";
++import { AuthPrincipalService } from "./auth-principal.service";
++
++const USER = "10000000-0000-4000-8000-000000000001";
++const SESSION = "20000000-0000-4000-8000-000000000001";
++const ORG = "30000000-0000-4000-8000-000000000001";
++function fixture() {
++  const snapshot = {
++    session: {
++      id: SESSION,
++      userId: USER,
++      expiresAt: new Date(Date.now() + 60000),
++      activeOrganizationId: null as string | null,
++      user: {
++        id: USER,
++        authEmail: "enrolled@example.invalid",
++        authName: "Enrolled",
++        authEmailVerified: true,
++        imageUrl: null,
++        blockedAt: null as Date | null,
++        encryptionKey: "synthetic-enrollment-key",
++        phoneRequired: true,
++        phoneVerified: true,
++        phoneNumber: "+14165550100",
++        canCall: false,
++        emails: [
++          {
++            email: "enrolled@example.invalid",
++            status: "verified",
++            isPrimary: true,
++          },
++        ],
++      },
++    },
++    membership: null as null | {
++      userId: string;
++      organizationId: string;
++      role: string;
++      organization: { id: string; name: string; slug: null; imageUrl: null };
++    },
++  };
++  let reads = 0;
++  const findPrincipalSnapshot = async () => {
++    reads += 1;
++    return snapshot;
++  };
++  const service = new AuthPrincipalService({
++    findPrincipalSnapshot,
++  } as unknown as AuthSessionRepository);
++  const reader = {
++    getVerifiedSession: async () => ({ id: SESSION, userId: USER }),
++  };
++  return { snapshot, service, reader, reads: () => reads };
++}
++describe("canonical auth principal boundary", () => {
++  it("returns canonical UUID personal scope without provider IDs or secrets", async () => {
++    const f = fixture();
++    const principal = await f.service.resolve(f.reader, new Headers());
++    assert.equal(principal.id, USER);
++    assert.equal(principal.activeOrgId, null);
++    assert.equal(principal.canCall, false);
++    assert.equal(principal.dto.organization, null);
++    assert.doesNotMatch(
++      JSON.stringify(principal),
++      /clerkId|encryptionKey|token|password|privateMetadata/,
++    );
++    assert.doesNotThrow(() => f.service.requireProductAccess(principal));
++  });
++  it("requires a verified provider session before database access", async () => {
++    const f = fixture();
++    await assert.rejects(
++      f.service.resolve(
++        { getVerifiedSession: async () => null },
++        new Headers(),
++      ),
++      /Session unavailable/,
++    );
++    await assert.rejects(
++      f.service.resolve(
++        { getVerifiedSession: async () => ({ id: "forged", userId: USER }) },
++        new Headers(),
++      ),
++    );
++    assert.equal(f.reads(), 0);
++  });
++  for (const reason of [
++    "blocked",
++    "legacy",
++    "unverified",
++    "missingPrimary",
++    "changedEmail",
++    "missingInitialization",
++  ])
++    it("denies " + reason + " enrollment", async () => {
++      const f = fixture(),
++        user = f.snapshot.session.user;
++      if (reason === "blocked") user.blockedAt = new Date();
++      if (reason === "legacy") user.authName = "";
++      if (reason === "unverified") user.emails[0].status = "pending";
++      if (reason === "missingPrimary") user.emails[0].isPrimary = false;
++      if (reason === "changedEmail") user.authEmail = "changed@example.invalid";
++      if (reason === "missingInitialization") user.encryptionKey = "";
++      await assert.rejects(
++        f.service.resolve(f.reader, new Headers()),
++        /Account unavailable/,
++      );
++    });
++  it("denies expired, revoked or mismatched database sessions", async () => {
++    const f = fixture();
++    f.snapshot.session.expiresAt = new Date(0);
++    await assert.rejects(
++      f.service.resolve(f.reader, new Headers()),
++      /Session unavailable/,
++    );
++    f.snapshot.session.expiresAt = new Date(Date.now() + 60000);
++    f.snapshot.session.userId = ORG;
++    await assert.rejects(
++      f.service.resolve(f.reader, new Headers()),
++      /Session unavailable/,
++    );
++  });
++  it("never falls back to personal when selected membership is invalid", async () => {
++    const f = fixture();
++    f.snapshot.session.activeOrganizationId = ORG;
++    await assert.rejects(
++      f.service.resolve(f.reader, new Headers()),
++      /Workspace unavailable/,
++    );
++  });
++  it("observes downgrade and revocation on the next request", async () => {
++    const f = fixture();
++    f.snapshot.session.activeOrganizationId = ORG;
++    f.snapshot.membership = {
++      userId: USER,
++      organizationId: ORG,
++      role: "org:admin",
++      organization: { id: ORG, name: "Org", slug: null, imageUrl: null },
++    };
++    assert.equal(
++      (await f.service.resolve(f.reader, new Headers())).activeOrgRole,
++      "org:admin",
++    );
++    f.snapshot.membership.role = "org:member";
++    assert.equal(
++      (await f.service.resolve(f.reader, new Headers())).activeOrgRole,
++      "org:member",
++    );
++    f.snapshot.membership.role = "super-org:admin";
++    await assert.rejects(
++      f.service.resolve(f.reader, new Headers()),
++      /Workspace unavailable/,
++    );
++    f.snapshot.membership = null;
++    await assert.rejects(
++      f.service.resolve(f.reader, new Headers()),
++      /Workspace unavailable/,
++    );
++    assert.equal(f.reads(), 4);
++  });
++  it("keeps phone onboarding mandatory and honors only the stored waiver", async () => {
++    const f = fixture();
++    f.snapshot.session.user.phoneVerified = false;
++    const principal = await f.service.resolve(f.reader, new Headers());
++    assert.throws(
++      () => f.service.requireProductAccess(principal),
++      /Phone verification required/,
++    );
++    f.snapshot.session.user.phoneRequired = false;
++    assert.throws(() => f.service.requireProductAccess(principal));
++    const waived = await f.service.resolve(f.reader, new Headers());
++    assert.doesNotThrow(() => f.service.requireProductAccess(waived));
++  });
++});
+diff --git a/packages/services/src/services/auth-principal.service.ts b/packages/services/src/services/auth-principal.service.ts
+new file mode 100644
+index 0000000..d114083
+--- /dev/null
++++ b/packages/services/src/services/auth-principal.service.ts
+@@ -0,0 +1,115 @@
++import {
++  ForbiddenException,
++  Inject,
++  Injectable,
++  UnauthorizedException,
++} from "@nestjs/common";
++import type { AuthSessionRepository } from "@ringee/database";
++import type { AuthSessionReader, RingeeAuthPrincipal } from "@ringee/platform";
++
++const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
++
++/**
++ * Dormant until every consumer is migrated. Resolve on every request/stream revalidation.
++ * A provider session is authentication only; current domain rows authorize Ringee.
++ */
++@Injectable()
++export class AuthPrincipalService {
++  constructor(
++    @Inject("RINGEE_AUTH_SESSION_REPOSITORY")
++    private readonly sessions: AuthSessionRepository,
++  ) {}
++
++  async resolve(
++    reader: AuthSessionReader,
++    headers: Headers,
++  ): Promise<RingeeAuthPrincipal> {
++    const verified = await reader.getVerifiedSession(headers);
++    if (!verified || !UUID.test(verified.id) || !UUID.test(verified.userId)) {
++      throw new UnauthorizedException("Session unavailable");
++    }
++    const snapshot = await this.sessions.findPrincipalSnapshot(
++      verified.id,
++      verified.userId,
++      new Date(),
++    );
++    if (
++      !snapshot ||
++      snapshot.session.userId !== verified.userId ||
++      snapshot.session.user.id !== verified.userId ||
++      snapshot.session.expiresAt.getTime() <= Date.now()
++    ) {
++      throw new UnauthorizedException("Session unavailable");
++    }
++    const { session, membership } = snapshot;
++    const user = session.user;
++    const email = user.authEmail;
++    const primary = user.emails.filter((row) => row.isPrimary);
++    if (
++      user.blockedAt !== null ||
++      !email ||
++      email !== email.trim().toLowerCase() ||
++      !user.authName?.trim() ||
++      !user.encryptionKey ||
++      primary.length !== 1 ||
++      primary[0].email !== email ||
++      !user.authEmailVerified ||
++      primary[0].status !== "verified"
++    ) {
++      throw new ForbiddenException("Account unavailable");
++    }
++    const organizationId = session.activeOrganizationId;
++    if (
++      organizationId !== null &&
++      (!UUID.test(organizationId) ||
++        !membership ||
++        membership.userId !== user.id ||
++        membership.organizationId !== organizationId ||
++        membership.organization.id !== organizationId ||
++        !["org:admin", "org:member"].includes(membership.role))
++    ) {
++      // Never silently turn an invalid explicit organization into personal access.
++      throw new ForbiddenException("Workspace unavailable");
++    }
++    const role =
++      organizationId === null
++        ? null
++        : (membership!.role as "org:admin" | "org:member");
++    const dto = {
++      user: {
++        id: user.id,
++        email,
++        emailVerified: true,
++        name: user.authName,
++        imageUrl: user.imageUrl,
++      },
++      organization:
++        organizationId === null
++          ? null
++          : { ...membership!.organization, role: role! },
++      phoneAccess: {
++        required: user.phoneRequired,
++        verified: user.phoneVerified && !!user.phoneNumber,
++      },
++      expiresAt: session.expiresAt.toISOString(),
++    };
++    return {
++      id: user.id,
++      sessionId: session.id,
++      activeOrgId: organizationId,
++      activeOrgRole: role,
++      canCall: user.canCall,
++      dto,
++    };
++  }
++
++  /** Product routes must call this; onboarding routes may read the principal DTO. */
++  requireProductAccess(principal: RingeeAuthPrincipal): void {
++    if (
++      principal.dto.phoneAccess.required &&
++      !principal.dto.phoneAccess.verified
++    ) {
++      throw new ForbiddenException("Phone verification required");
++    }
++  }
++}
+diff --git a/scripts/auth-runtime.test.cjs b/scripts/auth-runtime.test.cjs
+new file mode 100644
+index 0000000..f40b2d3
+--- /dev/null
++++ b/scripts/auth-runtime.test.cjs
+@@ -0,0 +1,90 @@
++const { test } = require("node:test");
++const assert = require("node:assert/strict");
++const { readFileSync, existsSync } = require("node:fs");
++const { resolve, join } = require("node:path");
++const { randomBytes } = require("node:crypto");
++const root = resolve(__dirname, "..");
++for (const owner of ["apps/backend", "apps/orchestrator"]) {
++  test(
++    owner + " compiled native ESM asset resolves pinned runtime",
++    async () => {
++      const directory = join(
++        root,
++        owner,
++        "dist/packages/platform/src/auth/better-auth",
++      );
++      assert.ok(
++        existsSync(join(directory, "better-auth.runtime.js")),
++        "Build the actual application first",
++      );
++      const source = readFileSync(join(directory, "native-loader.cjs"), "utf8");
++      assert.ok(source.includes('import("./runtime.mjs")'));
++      assert.ok(!source.includes('require("better-auth'));
++      const { createRuntime } = await require(
++        join(directory, "native-loader.cjs"),
++      ).loadRuntime();
++      const configuration = {
++        secret: randomBytes(48).toString("base64url"),
++        baseURL: "https://calls-api.connectxmedia.com",
++        trustedOrigins: ["https://calls.connectxmedia.com"],
++      };
++      assert.throws(() => createRuntime({}, { ...configuration, secret: "" }));
++      assert.throws(() =>
++        createRuntime(
++          {},
++          {
++            ...configuration,
++            trustedOrigins: ["https://evil.connectxmedia.com"],
++          },
++        ),
++      );
++      assert.throws(() =>
++        createRuntime(
++          {},
++          { ...configuration, baseURL: "http://calls-api.connectxmedia.com" },
++        ),
++      );
++      const { createBetterAuthRuntime } = require(
++        join(directory, "better-auth.runtime.js"),
++      );
++      const previousSecret = process.env.BETTER_AUTH_SECRET;
++      let runtime;
++      try {
++        process.env.BETTER_AUTH_SECRET = configuration.secret;
++        runtime = await createBetterAuthRuntime({});
++      } finally {
++        if (previousSecret === undefined) delete process.env.BETTER_AUTH_SECRET;
++        else process.env.BETTER_AUTH_SECRET = previousSecret;
++      }
++      for (const path of [
++        "sign-up/email",
++        "reset-password",
++        "request-password-reset",
++        "change-password",
++        "get-session",
++        "organization/create",
++        "delete-user",
++      ]) {
++        const response = await runtime.handle(
++          new Request(configuration.baseURL + "/api/auth/" + path, {
++            method: "POST",
++          }),
++        );
++        assert.equal(response.status, 404);
++      }
++      for (const origin of [
++        undefined,
++        "https://evil.connectxmedia.com",
++        "https://calls.connectxmedia.com.evil.invalid",
++      ]) {
++        const response = await runtime.handle(
++          new Request(configuration.baseURL + "/api/auth/sign-out", {
++            method: "POST",
++            headers: origin ? { origin } : {},
++          }),
++        );
++        assert.equal(response.status, 403);
++      }
++    },
++  );
++}
+diff --git a/scripts/copy-auth-runtime.cjs b/scripts/copy-auth-runtime.cjs
+new file mode 100644
+index 0000000..028a473
+--- /dev/null
++++ b/scripts/copy-auth-runtime.cjs
+@@ -0,0 +1,27 @@
++const { copyFileSync, mkdirSync, existsSync } = require("node:fs");
++const { resolve, join } = require("node:path");
++const root = resolve(__dirname, "..");
++const owner = process.argv[2];
++if (!["packages/platform", "apps/backend", "apps/orchestrator"].includes(owner))
++  throw new Error("Unknown build owner");
++const source = join(root, "packages/platform/src/auth/better-auth");
++const emittedRoots =
++  owner === "packages/platform"
++    ? ["packages/platform/src", "platform/src", "src", ""]
++    : ["packages/platform/src"];
++const destinations = emittedRoots
++  .map((path) => join(root, owner, "dist", path, "auth/better-auth"))
++  .filter((path) => existsSync(join(path, "better-auth.runtime.js")));
++if (destinations.length !== 1)
++  throw new Error(
++    "Expected one compiled native loader bridge before copying assets",
++  );
++const destination = destinations[0];
++mkdirSync(destination, { recursive: true });
++for (const name of [
++  "native-loader.cjs",
++  "runtime.mjs",
++  "hashed-session-adapter.mjs",
++]) {
++  copyFileSync(join(source, name), join(destination, name));
++}
+diff --git a/apps/frontend/src/features/auth/components/user-auth-form.tsx b/apps/frontend/src/features/auth/components/user-auth-form.tsx
+index e9f1ceb..59b529b 100644
+--- a/apps/frontend/src/features/auth/components/user-auth-form.tsx
++++ b/apps/frontend/src/features/auth/components/user-auth-form.tsx
+@@ -1,81 +1,95 @@
+ 'use client';
+-import { Button } from '@ringee/frontend-shared/components/ui/button';
+-import {
+-  Form,
+-  FormControl,
+-  FormField,
+-  FormItem,
+-  FormLabel,
+-  FormMessage
+-} from '@ringee/frontend-shared/components/ui/form';
+-import { Input } from '@ringee/frontend-shared/components/ui/input';
++
+ import { zodResolver } from '@hookform/resolvers/zod';
+ import { useSearchParams } from 'next/navigation';
+-import { useTransition } from 'react';
++import { useTranslations } from 'next-intl';
+ import { useForm } from 'react-hook-form';
+-import { toast } from 'sonner';
+-import * as z from 'zod';
+-import GithubSignInButton from './github-auth-button';
++import { z } from 'zod';
++import { ApiError } from '@ringee/frontend-shared/lib/api';
++import { Button } from '@ringee/frontend-shared/components/ui/button';
++import { Form } from '@ringee/frontend-shared/components/ui/form';
+ import { FormInput } from '@ringee/frontend-shared/components/forms/form-input';
++import {
++  createRingeeAuthClient,
++  signInDestination
++} from '@ringee/frontend-shared/lib/auth.client';
+ 
+-const formSchema = z.object({
+-  email: z.string().email({ message: 'Enter a valid email address' })
+-});
+-
+-type UserFormValue = z.infer<typeof formSchema>;
++// Dormant until the provider, protected routes, phone onboarding and all
++// consumers are migrated together. The live sign-in-view still uses Clerk.
++type UserFormValue = { email: string; password: string };
+ 
+ export default function UserAuthForm() {
++  const t = useTranslations('auth');
+   const searchParams = useSearchParams();
+-  const callbackUrl = searchParams.get('callbackUrl');
+-  const [loading, startTransition] = useTransition();
+-  const defaultValues = {
+-    email: 'demo@gmail.com'
+-  };
++  const formSchema = z.object({
++    email: z.string().email({ message: t('errors.invalidEmail') }),
++    password: z.string().min(1, { message: t('errors.passwordRequired') })
++  });
+   const form = useForm<UserFormValue>({
+     resolver: zodResolver(formSchema),
+-    defaultValues
++    defaultValues: { email: '', password: '' }
+   });
+ 
+-  const onSubmit = async (data: UserFormValue) => {
+-    startTransition(() => {
+-      console.log('continue with email clicked');
+-      toast.success('Signed In Successfully!');
+-    });
++  const onSubmit = async (credentials: UserFormValue) => {
++    form.clearErrors('root');
++    try {
++      const apiURL = process.env.NEXT_PUBLIC_API_URL;
++      if (!apiURL) throw new Error('Authentication API is not configured');
++      const client = createRingeeAuthClient(apiURL);
++      const principal = await client.signIn(credentials);
++      form.resetField('password');
++      // A document navigation clears cached data from the previous session.
++      window.location.assign(
++        signInDestination(principal, searchParams.get('callbackUrl'))
++      );
++    } catch (error) {
++      form.resetField('password');
++      const invalidCredentials =
++        error instanceof ApiError && error.status === 401;
++      form.setError('root', {
++        message: t(
++          invalidCredentials
++            ? 'errors.invalidCredentials'
++            : 'errors.signInUnavailable'
++        )
++      });
++    }
+   };
+ 
+   return (
+-    <>
+-      <Form
+-        form={form}
+-        onSubmit={form.handleSubmit(onSubmit)}
+-        className='w-full space-y-2'
++    <Form
++      form={form}
++      onSubmit={form.handleSubmit(onSubmit)}
++      className='w-full space-y-4'
++    >
++      <FormInput
++        control={form.control}
++        name='email'
++        type='email'
++        label={t('fields.email')}
++        placeholder={t('fields.emailPlaceholder')}
++        disabled={form.formState.isSubmitting}
++      />
++      <FormInput
++        control={form.control}
++        name='password'
++        type='password'
++        label={t('fields.password')}
++        placeholder={t('fields.passwordPlaceholder')}
++        disabled={form.formState.isSubmitting}
++      />
++      {form.formState.errors.root?.message && (
++        <p role='alert' className='text-destructive text-sm'>
++          {form.formState.errors.root.message}
++        </p>
++      )}
++      <Button
++        type='submit'
++        className='w-full'
++        disabled={form.formState.isSubmitting}
+       >
+-        <FormInput
+-          control={form.control}
+-          name='email'
+-          label='Email'
+-          placeholder='Enter your email...'
+-          disabled={loading}
+-        />
+-        <Button
+-          disabled={loading}
+-          className='mt-2 ml-auto w-full'
+-          type='submit'
+-        >
+-          Continue With Email
+-        </Button>
+-      </Form>
+-      <div className='relative'>
+-        <div className='absolute inset-0 flex items-center'>
+-          <span className='w-full border-t' />
+-        </div>
+-        <div className='relative flex justify-center text-xs uppercase'>
+-          <span className='bg-background text-muted-foreground px-2'>
+-            Or continue with
+-          </span>
+-        </div>
+-      </div>
+-      <GithubSignInButton />
+-    </>
++        {t('signIn.submit')}
++      </Button>
++    </Form>
+   );
+ }
+diff --git a/apps/frontend/src/features/auth/lib/principal.server.ts b/apps/frontend/src/features/auth/lib/principal.server.ts
+new file mode 100644
+index 0000000..b84820d
+--- /dev/null
++++ b/apps/frontend/src/features/auth/lib/principal.server.ts
+@@ -0,0 +1,11 @@
++import 'server-only';
++
++import { cookies } from 'next/headers';
++import { createCookieApiServer } from '@ringee/frontend-shared/lib/api.server';
++import { readAuthPrincipal } from '@ringee/frontend-shared/lib/auth.contracts';
++
++/** Request-scoped only: identity is verified by the backend, not cookie presence. */
++export async function getAuthPrincipal() {
++  const cookieStore = await cookies();
++  return readAuthPrincipal(createCookieApiServer(cookieStore.toString()));
++}
+diff --git a/apps/frontend/src/i18n/locales/en/auth.json b/apps/frontend/src/i18n/locales/en/auth.json
+index b21dae0..8fd7832 100644
+--- a/apps/frontend/src/i18n/locales/en/auth.json
++++ b/apps/frontend/src/i18n/locales/en/auth.json
+@@ -73,7 +73,10 @@
+     "invalidCredentials": "Invalid email or password.",
+     "accountLocked": "Your account has been locked. Contact support.",
+     "emailInUse": "An account with this email already exists.",
+-    "weakPassword": "Password must be at least 8 characters."
++    "weakPassword": "Password must be at least 8 characters.",
++    "invalidEmail": "Enter a valid email address.",
++    "passwordRequired": "Enter your password.",
++    "signInUnavailable": "We couldn't complete sign-in. Please try again."
+   },
+   "cliAuthorize": {
+     "metaTitle": "Authorize Ringee CLI",
+diff --git a/apps/frontend/src/i18n/locales/es/auth.json b/apps/frontend/src/i18n/locales/es/auth.json
+index 41b059f..768fa11 100644
+--- a/apps/frontend/src/i18n/locales/es/auth.json
++++ b/apps/frontend/src/i18n/locales/es/auth.json
+@@ -73,7 +73,10 @@
+     "invalidCredentials": "Email o contraseña incorrectos.",
+     "accountLocked": "Tu cuenta ha sido bloqueada. Contacta con soporte.",
+     "emailInUse": "Ya existe una cuenta con este email.",
+-    "weakPassword": "La contraseña debe tener al menos 8 caracteres."
++    "weakPassword": "La contraseña debe tener al menos 8 caracteres.",
++    "invalidEmail": "Introduce un email válido.",
++    "passwordRequired": "Introduce tu contraseña.",
++    "signInUnavailable": "No pudimos completar el inicio de sesión. Inténtalo nuevamente."
+   },
+   "cliAuthorize": {
+     "metaTitle": "Autorizar la CLI de Ringee",
+diff --git a/packages/frontend-shared/src/auth/__tests__/auth-client.test.ts b/packages/frontend-shared/src/auth/__tests__/auth-client.test.ts
+new file mode 100644
+index 0000000..3562825
+--- /dev/null
++++ b/packages/frontend-shared/src/auth/__tests__/auth-client.test.ts
+@@ -0,0 +1,225 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import { ApiClient, ApiError } from "../../lib/api";
++import {
++  readAuthPrincipal,
++  signInDestination,
++  authPrincipalSchema,
++} from "../contracts";
++import { createRingeeAuthClient } from "../client";
++import { createCookieApiServer } from "../../lib/api.server";
++
++const principal = {
++  user: {
++    id: "00000000-0000-4000-8000-000000000001",
++    email: "stage@example.invalid",
++    emailVerified: true,
++    name: "Stage",
++    imageUrl: null,
++  },
++  organization: null,
++  phoneAccess: { required: false, verified: false },
++  expiresAt: "2099-01-01T00:00:00.000Z",
++};
++test("phone waiver and local navigation preserve backend decision", () => {
++  assert.equal(signInDestination(principal), "/dashboard");
++  assert.equal(
++    signInDestination({
++      ...principal,
++      phoneAccess: { required: true, verified: false },
++    }),
++    "/auth/verify-phone",
++  );
++  assert.equal(
++    signInDestination(
++      { ...principal, phoneAccess: { required: true, verified: true } },
++      "/cli/authorize",
++    ),
++    "/cli/authorize",
++  );
++  for (const destination of [
++    "https://evil.invalid",
++    "//evil.invalid",
++    "/\\evil.invalid",
++    "/\nevil.invalid",
++  ]) {
++    assert.equal(signInDestination(principal, destination), "/dashboard");
++  }
++});
++test("principal projection strips credentials and denies malformed roles", () => {
++  const parsed = authPrincipalSchema.parse({
++    ...principal,
++    token: "must-never-escape",
++    user: { ...principal.user, privateMetadata: { secret: true } },
++  });
++  assert.deepEqual(parsed, principal);
++  assert.throws(() =>
++    authPrincipalSchema.parse({
++      ...principal,
++      organization: {
++        id: principal.user.id,
++        name: "Org",
++        slug: null,
++        imageUrl: null,
++        role: "org:admin-untrusted",
++      },
++    }),
++  );
++  assert.throws(() =>
++    authPrincipalSchema.parse({
++      ...principal,
++      user: { ...principal.user, id: "clerk_user" },
++    }),
++  );
++});
++test("anonymous and expired sessions differ from backend failures", async () => {
++  const original = globalThis.fetch;
++  const api = new ApiClient({
++    baseURL: "https://calls-api.connectxmedia.com/api",
++  });
++  try {
++    globalThis.fetch = async () => new Response("null");
++    assert.equal(await readAuthPrincipal(api), null);
++    globalThis.fetch = async () => new Response("{}", { status: 401 });
++    assert.equal(await readAuthPrincipal(api), null);
++    globalThis.fetch = async () =>
++      new Response(
++        JSON.stringify({ ...principal, expiresAt: "2000-01-01T00:00:00.000Z" }),
++      );
++    assert.equal(await readAuthPrincipal(api), null);
++    globalThis.fetch = async () => new Response("{}", { status: 503 });
++    await assert.rejects(
++      readAuthPrincipal(api),
++      (error) => error instanceof ApiError && error.status === 503,
++    );
++  } finally {
++    globalThis.fetch = original;
++  }
++});
++test("request-scoped server cookies stay isolated and GET bypasses cache", async () => {
++  const original = globalThis.fetch;
++  const requests: RequestInit[] = [];
++  try {
++    globalThis.fetch = async (_input, init) => {
++      requests.push(init!);
++      return new Response("{}");
++    };
++    const first = createCookieApiServer(
++      "ringee.session=first",
++      "https://calls-api.connectxmedia.com/api",
++    );
++    const second = createCookieApiServer(
++      "ringee.session=second",
++      "https://calls-api.connectxmedia.com/api",
++    );
++    await Promise.all([first.get("/user"), second.get("/user")]);
++    assert.deepEqual(
++      requests.map((r) => (r.headers as Record<string, string>).Cookie),
++      ["ringee.session=first", "ringee.session=second"],
++    );
++    assert.ok(
++      requests.every(
++        (r) => r.cache === "no-store" && r.credentials === "include",
++      ),
++    );
++    assert.ok(
++      requests.every(
++        (r) => !("Authorization" in (r.headers as Record<string, string>)),
++      ),
++    );
++  } finally {
++    globalThis.fetch = original;
++  }
++});
++test("browser SDK auth uses credentials and only exposes Ringee principal", async () => {
++  const original = globalThis.fetch;
++  const requests: Request[] = [];
++  try {
++    globalThis.fetch = async (input, init) => {
++      const request = new Request(input, init);
++      requests.push(request);
++      const path = new URL(request.url).pathname;
++      if (path === "/api/auth/sign-in/email")
++        return new Response(
++          JSON.stringify({
++            token: "private-provider-token",
++            user: { id: principal.user.id },
++          }),
++          { headers: { "Content-Type": "application/json" } },
++        );
++      if (path === "/api/auth/principal")
++        return new Response(JSON.stringify(principal), {
++          headers: { "Content-Type": "application/json" },
++        });
++      if (path === "/api/auth/sign-out")
++        return new Response(JSON.stringify({ success: true }), {
++          headers: { "Content-Type": "application/json" },
++        });
++      throw new Error("Unexpected path " + path);
++    };
++    const client = createRingeeAuthClient(
++      "https://calls-api.connectxmedia.com/api",
++    );
++    assert.deepEqual(
++      await client.signIn({
++        email: "stage@example.invalid",
++        password: "synthetic-fixture",
++      }),
++      principal,
++    );
++    await client.signOut();
++    assert.deepEqual(
++      requests.map((r) => new URL(r.url).pathname),
++      ["/api/auth/sign-in/email", "/api/auth/principal", "/api/auth/sign-out"],
++    );
++    assert.ok(requests.every((r) => r.credentials === "include"));
++    assert.ok(!("token" in (await client.getPrincipal())!));
++  } finally {
++    globalThis.fetch = original;
++  }
++});
++
++test("authentication URL rejects unsafe schemes, credentials and nonlocal HTTP", () => {
++  for (const url of [
++    "javascript:alert(1)",
++    "https://calls-api.connectxmedia.com/other",
++    "ftp://calls-api.connectxmedia.com/api",
++    "http://calls-api.connectxmedia.com/api",
++    "https://name:secret@calls-api.connectxmedia.com/api",
++    "https://calls-api.connectxmedia.com/api?next=other",
++    "https://calls-api.connectxmedia.com/api#fragment",
++  ]) {
++    assert.throws(() => createRingeeAuthClient(url));
++  }
++  assert.doesNotThrow(() =>
++    createRingeeAuthClient("http://localhost:3000/api"),
++  );
++  assert.doesNotThrow(() =>
++    createRingeeAuthClient("https://calls-api.connectxmedia.com/api"),
++  );
++});
++
++test("SDK failures retain status for invalid-credentials versus unavailable UI", async () => {
++  const original = globalThis.fetch;
++  try {
++    for (const status of [401, 503]) {
++      globalThis.fetch = async () =>
++        new Response(JSON.stringify({ message: "Authentication failed" }), {
++          status,
++          headers: { "Content-Type": "application/json" },
++        });
++      const client = createRingeeAuthClient(
++        "https://calls-api.connectxmedia.com/api",
++      );
++      await assert.rejects(
++        client.signIn({
++          email: "stage@example.invalid",
++          password: "synthetic-fixture",
++        }),
++        (error) => error instanceof ApiError && error.status === status,
++      );
++    }
++  } finally {
++    globalThis.fetch = original;
++  }
++});
+diff --git a/packages/frontend-shared/src/auth/client.ts b/packages/frontend-shared/src/auth/client.ts
+new file mode 100644
+index 0000000..ec2986b
+--- /dev/null
++++ b/packages/frontend-shared/src/auth/client.ts
+@@ -0,0 +1,58 @@
++"use client";
++
++import { createAuthClient } from "better-auth/react";
++import { ApiClient, ApiError } from "../lib/api";
++import { readAuthPrincipal } from "./contracts";
++
++export interface EmailPasswordCredentials {
++  email: string;
++  password: string;
++}
++
++export function createRingeeAuthClient(apiBaseURL: string) {
++  const apiURL = new URL(apiBaseURL);
++  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(
++    apiURL.hostname,
++  );
++  if (
++    (apiURL.protocol !== "https:" &&
++      !(apiURL.protocol === "http:" && loopback)) ||
++    apiURL.search ||
++    apiURL.hash ||
++    apiURL.username ||
++    apiURL.password ||
++    apiURL.pathname.replace(/\/$/, "") !== "/api"
++  ) {
++    throw new Error("Invalid authentication API URL");
++  }
++  const apiPath = apiURL.pathname.replace(/\/$/, "");
++  const provider = createAuthClient({
++    baseURL: apiURL.origin,
++    basePath: `${apiPath}/auth`,
++    fetchOptions: { credentials: "include" },
++  });
++  const api = new ApiClient({
++    baseURL: apiBaseURL.replace(/\/$/, ""),
++    cache: "no-store",
++  });
++
++  return {
++    getPrincipal: () => readAuthPrincipal(api),
++    async signIn(credentials: EmailPasswordCredentials) {
++      // No provider token or user object escapes this browser-only adapter.
++      const result = await provider.signIn.email(credentials);
++      if (result.error) {
++        throw new ApiError("Sign in failed", result.error.status);
++      }
++      const principal = await readAuthPrincipal(api);
++      if (!principal) throw new ApiError("Authentication required", 401);
++      return principal;
++    },
++    async signOut() {
++      const result = await provider.signOut();
++      if (result.error) {
++        throw new ApiError("Sign out failed", result.error.status);
++      }
++    },
++  };
++}
+diff --git a/packages/frontend-shared/src/auth/contracts.ts b/packages/frontend-shared/src/auth/contracts.ts
+new file mode 100644
+index 0000000..7ca79e4
+--- /dev/null
++++ b/packages/frontend-shared/src/auth/contracts.ts
+@@ -0,0 +1,67 @@
++import { z } from "zod";
++import { ApiError, type ApiClient } from "../lib/api";
++
++// This is the sanitized Ringee principal, never Better Auth's session/token DTO.
++export const authPrincipalSchema = z.object({
++  user: z.object({
++    id: z.string().uuid(),
++    email: z.string().email(),
++    emailVerified: z.boolean(),
++    name: z.string(),
++    imageUrl: z.string().nullable(),
++  }),
++  organization: z
++    .object({
++      id: z.string().uuid(),
++      name: z.string(),
++      slug: z.string().nullable(),
++      imageUrl: z.string().nullable(),
++      role: z.enum(["org:admin", "org:member"]),
++    })
++    .nullable(),
++  phoneAccess: z.object({
++    required: z.boolean(),
++    verified: z.boolean(),
++  }),
++  expiresAt: z.string().datetime(),
++});
++
++export type AuthPrincipal = z.infer<typeof authPrincipalSchema>;
++
++export async function readAuthPrincipal(
++  api: ApiClient,
++): Promise<AuthPrincipal | null> {
++  try {
++    const response = await api.get<unknown>("/auth/principal");
++    if (response === null) return null;
++    const principal = authPrincipalSchema.parse(response);
++    if (Date.parse(principal.expiresAt) <= Date.now()) {
++      throw new ApiError("Authentication session expired", 401);
++    }
++    return principal;
++  } catch (error) {
++    if (error instanceof ApiError && error.status === 401) return null;
++    throw error;
++  }
++}
++
++export function signInDestination(
++  principal: AuthPrincipal,
++  requested?: string | null,
++): string {
++  // Preserve the server's phoneRequired waiver: unverified is not always required.
++  if (principal.phoneAccess.required && !principal.phoneAccess.verified) {
++    return "/auth/verify-phone";
++  }
++  if (
++    !requested ||
++    !requested.startsWith("/") ||
++    requested.startsWith("//") ||
++    Array.from(requested).some(
++      (character) => character === "\\" || character.charCodeAt(0) <= 0x20,
++    )
++  ) {
++    return "/dashboard";
++  }
++  return requested;
++}
+diff --git a/packages/frontend-shared/src/hooks/use.api.ts b/packages/frontend-shared/src/hooks/use.api.ts
+index b9aebb6..4a8e110 100644
+--- a/packages/frontend-shared/src/hooks/use.api.ts
++++ b/packages/frontend-shared/src/hooks/use.api.ts
+@@ -24,3 +24,8 @@ export function useApi() {
+     });
+   }, [getToken]);
+ }
++
++/** Dormant cookie transport for the Better Auth consumer migration. */
++export function useCookieApi() {
++  return useMemo(() => new ApiClient(), []);
++}
+diff --git a/packages/frontend-shared/src/lib/api.server.ts b/packages/frontend-shared/src/lib/api.server.ts
+index 3f9553c..0a04388 100644
+--- a/packages/frontend-shared/src/lib/api.server.ts
++++ b/packages/frontend-shared/src/lib/api.server.ts
+@@ -20,3 +20,12 @@ export class ApiServer extends ApiClient {
+ }
+ 
+ export const apiServer = new ApiServer();
++
++/** Create once per incoming request; never store a user's cookies in apiServer. */
++export function createCookieApiServer(cookieHeader: string, baseURL?: string) {
++  return new ApiClient({
++    baseURL,
++    headers: { Cookie: cookieHeader },
++    cache: "no-store",
++  });
++}
+diff --git a/packages/frontend-shared/src/lib/api.ts b/packages/frontend-shared/src/lib/api.ts
+index 0e05358..7e247b9 100644
+--- a/packages/frontend-shared/src/lib/api.ts
++++ b/packages/frontend-shared/src/lib/api.ts
+@@ -2,6 +2,7 @@ import { DEVICE_ID_HEADER, getRingeeDeviceId } from "../realtime/device-id";
+ 
+ export interface ApiClientOptions {
+   baseURL?: string;
++  cache?: RequestCache;
+   headers?: Record<string, string>;
+   getAuthToken?: () => Promise<string | null>;
+   mocks?: Record<string, (...args: any[]) => Promise<any> | any>;
+@@ -149,6 +150,7 @@ export class ApiClient {
+ 
+       const res = await fetch(url.toString(), {
+         method: "GET",
++        cache: this.options?.cache,
+         headers: await this.buildHeaders(),
+         credentials: "include",
+       });
+diff --git a/packages/frontend-shared/src/lib/auth.client.ts b/packages/frontend-shared/src/lib/auth.client.ts
+new file mode 100644
+index 0000000..0a6c783
+--- /dev/null
++++ b/packages/frontend-shared/src/lib/auth.client.ts
+@@ -0,0 +1,5 @@
++"use client";
++
++export { createRingeeAuthClient } from "../auth/client";
++export { signInDestination } from "../auth/contracts";
++export type { AuthPrincipal } from "../auth/contracts";
+diff --git a/packages/frontend-shared/src/lib/auth.contracts.ts b/packages/frontend-shared/src/lib/auth.contracts.ts
+new file mode 100644
+index 0000000..9fb0b50
+--- /dev/null
++++ b/packages/frontend-shared/src/lib/auth.contracts.ts
+@@ -0,0 +1,2 @@
++export { readAuthPrincipal, signInDestination } from "../auth/contracts";
++export type { AuthPrincipal } from "../auth/contracts";

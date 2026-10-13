@@ -1,0 +1,86 @@
+{
+  "upstream": "b04a4b889a9c827e76f64574f6f3b2f1c5f79241",
+  "baseline": "bd2a3cda1a31182e7a7f89d004835f5191ee0c3b",
+  "date": "2026-10-13",
+  "productionClerkFiles": 57,
+  "existingTestRef": "apps/frontend/scripts/my-day-regressions.test.mjs",
+  "runner": {
+    "command": "NODE_OPTIONS=--max-old-space-size=512 node validation/better-auth-frontend/check.mjs /absolute/path/to/prepared/ringee-app",
+    "exit": 0,
+    "checked": "Final 12-file format, source ESLint, strict changed-source TypeScript including actual TSX/form dependencies, 7 SDK/HTTP tests"
+  },
+  "tests": {
+    "exit": 0,
+    "output": "TAP version 13\n# Subtest: phone waiver and local navigation preserve backend decision\nok 1 - phone waiver and local navigation preserve backend decision\n  ---\n  duration_ms: 0.687116\n  ...\n# Subtest: principal projection strips credentials and denies malformed roles\nok 2 - principal projection strips credentials and denies malformed roles\n  ---\n  duration_ms: 3.605977\n  ...\n# Subtest: anonymous and expired sessions differ from backend failures\nok 3 - anonymous and expired sessions differ from backend failures\n  ---\n  duration_ms: 3.6868\n  ...\n# Subtest: request-scoped server cookies stay isolated and GET bypasses cache\nok 4 - request-scoped server cookies stay isolated and GET bypasses cache\n  ---\n  duration_ms: 0.635511\n  ...\n# Subtest: browser SDK auth uses credentials and only exposes Ringee principal\nok 5 - browser SDK auth uses credentials and only exposes Ringee principal\n  ---\n  duration_ms: 10.760081\n  ...\n# Subtest: authentication URL rejects unsafe schemes, credentials and nonlocal HTTP\nok 6 - authentication URL rejects unsafe schemes, credentials and nonlocal HTTP\n  ---\n  duration_ms: 0.640379\n  ...\n# Subtest: SDK failures retain status for invalid-credentials versus unavailable UI\nok 7 - SDK failures retain status for invalid-credentials versus unavailable UI\n  ---\n  duration_ms: 1.690859\n  ...\n1..7\n# tests 7\n# suites 0\n# pass 7\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1081.736153\n"
+  },
+  "typecheck": {
+    "exit": 0,
+    "config": {
+      "compilerOptions": {
+        "target": "es5",
+        "lib": [
+          "dom",
+          "dom.iterable",
+          "esnext"
+        ],
+        "module": "esnext",
+        "moduleResolution": "node",
+        "jsx": "preserve",
+        "strict": true,
+        "skipLibCheck": true,
+        "noEmit": true,
+        "esModuleInterop": true,
+        "baseUrl": ".",
+        "paths": {
+          "@ringee/frontend-shared/*": [
+            "packages/frontend-shared/src/*"
+          ]
+        }
+      },
+      "files": [
+        "packages/frontend-shared/src/auth/contracts.ts",
+        "packages/frontend-shared/src/auth/client.ts",
+        "packages/frontend-shared/src/lib/auth.client.ts",
+        "packages/frontend-shared/src/lib/api.ts",
+        "packages/frontend-shared/src/lib/api.server.ts",
+        "packages/frontend-shared/src/hooks/use.api.ts",
+        "apps/frontend/src/features/auth/lib/principal.server.ts",
+        "packages/frontend-shared/src/lib/auth.contracts.ts",
+        "apps/frontend/src/features/auth/components/user-auth-form.tsx",
+        "packages/frontend-shared/src/auth/__tests__/auth-client.test.ts"
+      ]
+    },
+    "output": ""
+  },
+  "lint": {
+    "exit": 0,
+    "output": "\u001b[0m\u001b[0m\n\u001b[0m\u001b[4m/home/user/frontend-auth-stage-v2/ringee/packages/frontend-shared/src/lib/api.ts\u001b[24m\u001b[0m\n\u001b[0m  \u001b[2m115:11\u001b[22m  \u001b[33mwarning\u001b[39m  'token' is assigned a value but never used. Allowed unused vars must match /^_/u  \u001b[2m@typescript-eslint/no-unused-vars\u001b[22m\u001b[0m\n\u001b[0m\u001b[0m\n\u001b[0m\u001b[33m\u001b[1m✖ 1 problem (0 errors, 1 warning)\u001b[22m\u001b[39m\u001b[0m\n\u001b[0m\u001b[33m\u001b[1m\u001b[22m\u001b[39m\u001b[0m\n",
+    "stderr": "Pages directory cannot be found at /home/user/frontend-auth-stage-v2/ringee/pages or /home/user/frontend-auth-stage-v2/ringee/src/pages. If using a custom path, please configure with the `no-html-link-for-pages` rule in your eslint config file.\n",
+    "baselineWarning": "Existing ApiClient.maybeMock unused token, unchanged from upstream."
+  },
+  "translationKeys": {
+    "en": {
+      "errors.invalidCredentials": true,
+      "errors.invalidEmail": true,
+      "errors.passwordRequired": true,
+      "errors.signInUnavailable": true,
+      "fields.email": true,
+      "fields.emailPlaceholder": true,
+      "fields.password": true,
+      "fields.passwordPlaceholder": true,
+      "signIn.submit": true
+    },
+    "es": {
+      "errors.invalidCredentials": true,
+      "errors.invalidEmail": true,
+      "errors.passwordRequired": true,
+      "errors.signInUnavailable": true,
+      "fields.email": true,
+      "fields.emailPlaceholder": true,
+      "fields.password": true,
+      "fields.passwordPlaceholder": true,
+      "signIn.submit": true
+    }
+  },
+  "limits": "Dormant stage; no live cutover or full frontend build claimed."
+}

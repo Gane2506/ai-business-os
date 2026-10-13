@@ -3,26 +3,26 @@ name: Better Auth Prisma integration proof
 on:
   push:
     paths:
-      - 'validation/better-auth-prisma/**'
-      - 'validation/better-auth-sessions/**'
-      - 'patches/ringee-app/**'
-      - 'config/component-patches.json'
-      - 'config/upstream-lock.json'
-      - 'scripts/checkout_sources.py'
-      - 'scripts/check_sources.py'
-      - 'scripts/prepare_component.py'
-      - '.github/workflows/better-auth-prisma.yml'
+      - "validation/better-auth-prisma/**"
+      - "validation/better-auth-sessions/**"
+      - "patches/ringee-app/**"
+      - "config/component-patches.json"
+      - "config/upstream-lock.json"
+      - "scripts/checkout_sources.py"
+      - "scripts/check_sources.py"
+      - "scripts/prepare_component.py"
+      - ".github/workflows/better-auth-prisma.yml"
   pull_request:
     paths:
-      - 'validation/better-auth-prisma/**'
-      - 'validation/better-auth-sessions/**'
-      - 'patches/ringee-app/**'
-      - 'config/component-patches.json'
-      - 'config/upstream-lock.json'
-      - 'scripts/checkout_sources.py'
-      - 'scripts/check_sources.py'
-      - 'scripts/prepare_component.py'
-      - '.github/workflows/better-auth-prisma.yml'
+      - "validation/better-auth-prisma/**"
+      - "validation/better-auth-sessions/**"
+      - "patches/ringee-app/**"
+      - "config/component-patches.json"
+      - "config/upstream-lock.json"
+      - "scripts/checkout_sources.py"
+      - "scripts/check_sources.py"
+      - "scripts/prepare_component.py"
+      - ".github/workflows/better-auth-prisma.yml"
 
 permissions:
   contents: read
@@ -36,9 +36,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - postgres-major: '16'
+          - postgres-major: "16"
             postgres-image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
-          - postgres-major: '17'
+          - postgres-major: "17"
             postgres-image: postgres:17-alpine
     services:
       postgres:
@@ -62,10 +62,10 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
       - name: Recreate the pinned and patched Ringee source
         run: |
           python3 scripts/checkout_sources.py
@@ -84,14 +84,22 @@ jobs:
         with:
           version: ${{ steps.package-manager.outputs.version }}
           run_install: false
-      - name: Install the database dependency graph without lifecycle scripts
+      - name: Install the application dependency graph without lifecycle scripts
         working-directory: workspaces/ringee-app
-        run: pnpm install --frozen-lockfile --ignore-scripts --filter './packages/database...'
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter 'backend...' --filter '@ringee/orchestrator...' --filter '@ringee/frontend-shared'
       - name: Generate the actual Ringee client and migrate the disposable database
         working-directory: workspaces/ringee-app
         run: |
           packages/database/node_modules/.bin/prisma generate --schema packages/database/prisma/schema.prisma
           packages/database/node_modules/.bin/prisma migrate deploy --schema packages/database/prisma/schema.prisma
+      - name: Build actual applications and verify packaged native ESM
+        working-directory: workspaces/ringee-app
+        run: |
+          pnpm --filter 'backend...' --filter '@ringee/orchestrator...' build
+          node --test scripts/auth-runtime.test.cjs
+      - name: Test canonical principal authorization
+        working-directory: workspaces/ringee-app/packages/services
+        run: TS_NODE_PROJECT=tsconfig.json node --require ts-node/register --require tsconfig-paths/register --test src/services/auth-principal.service.spec.ts
       - name: Install locked Better Auth proof dependencies
         working-directory: validation/better-auth-prisma
         run: npm ci --ignore-scripts --legacy-peer-deps --no-audit --no-fund
