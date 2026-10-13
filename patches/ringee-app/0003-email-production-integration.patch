@@ -11242,3 +11242,14 @@ index 231c870..d0a7d8d 100644
        // temperature,
        max_tokens: maxTokens,
        tool_choice: "auto",
+diff --git a/packages/platform/tsconfig.build.json b/packages/platform/tsconfig.build.json
+index 48440c8..3cd63ce 100644
+--- a/packages/platform/tsconfig.build.json
++++ b/packages/platform/tsconfig.build.json
+@@ -2,5 +2,5 @@
+   /* Extend the config that contains the path aliases. */
+   "extends": "./tsconfig.json",
+ 
+-  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
++  "exclude": ["node_modules", "test", "dist", "**/*spec.ts", "**/*.test.ts"]
+ }
