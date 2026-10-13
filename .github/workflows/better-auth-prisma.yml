@@ -1,0 +1,100 @@
+name: Better Auth Prisma integration proof
+
+on:
+  push:
+    paths:
+      - 'validation/better-auth-prisma/**'
+      - 'validation/better-auth-sessions/**'
+      - 'patches/ringee-app/**'
+      - 'config/component-patches.json'
+      - 'config/upstream-lock.json'
+      - 'scripts/checkout_sources.py'
+      - 'scripts/check_sources.py'
+      - 'scripts/prepare_component.py'
+      - '.github/workflows/better-auth-prisma.yml'
+  pull_request:
+    paths:
+      - 'validation/better-auth-prisma/**'
+      - 'validation/better-auth-sessions/**'
+      - 'patches/ringee-app/**'
+      - 'config/component-patches.json'
+      - 'config/upstream-lock.json'
+      - 'scripts/checkout_sources.py'
+      - 'scripts/check_sources.py'
+      - 'scripts/prepare_component.py'
+      - '.github/workflows/better-auth-prisma.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  prisma-session-proof:
+    name: Prisma session contracts (PostgreSQL ${{ matrix.postgres-major }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - postgres-major: '16'
+            postgres-image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+          - postgres-major: '17'
+            postgres-image: postgres:17-alpine
+    services:
+      postgres:
+        image: ${{ matrix.postgres-image }}
+        env:
+          POSTGRES_USER: auth_prisma_ci
+          POSTGRES_PASSWORD: auth_prisma_ci
+          POSTGRES_DB: auth_prisma_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U auth_prisma_ci -d auth_prisma_ci"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      NODE_ENV: test
+      AUTH_PRISMA_PROOF: disposable
+      DATABASE_URL: postgresql://auth_prisma_ci:auth_prisma_ci@127.0.0.1:5432/auth_prisma_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Recreate the pinned and patched Ringee source
+        run: |
+          python3 scripts/checkout_sources.py
+          python3 scripts/check_sources.py
+          python3 scripts/prepare_component.py ringee-app
+      - name: Read the pinned package manager
+        id: package-manager
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+          package = json.loads(Path('workspaces/ringee-app/package.json').read_text())
+          print('version=' + package['packageManager'].removeprefix('pnpm@'))
+          PY
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ steps.package-manager.outputs.version }}
+          run_install: false
+      - name: Install the database dependency graph without lifecycle scripts
+        working-directory: workspaces/ringee-app
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter './packages/database...'
+      - name: Generate the actual Ringee client and migrate the disposable database
+        working-directory: workspaces/ringee-app
+        run: |
+          packages/database/node_modules/.bin/prisma generate --schema packages/database/prisma/schema.prisma
+          packages/database/node_modules/.bin/prisma migrate deploy --schema packages/database/prisma/schema.prisma
+      - name: Install locked Better Auth proof dependencies
+        working-directory: validation/better-auth-prisma
+        run: npm ci --ignore-scripts --legacy-peer-deps --no-audit --no-fund
+      - name: Exercise real Prisma session contracts
+        working-directory: validation/better-auth-prisma
+        run: RINGEE_DATABASE_PACKAGE_FILE="$GITHUB_WORKSPACE/workspaces/ringee-app/packages/database/package.json" npm test
