@@ -1,0 +1,16 @@
+{
+  "name": "ai-business-os-better-auth-verification-proof",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test verification.test.mjs",
+    "test:prisma": "node --test prisma.test.mjs"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "dependencies": {
+    "better-auth": "1.7.7"
+  }
+}
