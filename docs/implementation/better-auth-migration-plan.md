@@ -1,6 +1,8 @@
 # Better Auth migration plan for Ringee
 
-Status: implementation plan, not an implemented or deployed authentication change. Prepared 2026-10-12 from Ringee source and Better Auth primary documentation. Scope is Ringee inside the combined business OS; Twenty and Mautic identity integration remains separate.
+Status: application integration in progress; no authentication cutover or deployment. Prepared 2026-10-12, updated 2026-10-13. Better Auth 1.7.7 runtime, hashed-session, additive-schema and real Prisma proofs are merged; see [current implementation status](current-status.md). Scope is Ringee inside the combined business OS; Twenty and Mautic identity integration remains separate.
+
+User decisions: initial sign-in uses email and password, and login sessions are shared across the AI Business OS subdomains under `connectxmedia.com`. Preserve staff approval, closed signup and the existing phone-verification requirement. Configure a Secure, HttpOnly shared-domain cookie with exact trusted application origins and active CSRF/origin checks. Sharing a cookie does not by itself integrate Twenty/Mautic authentication or grant workspace permissions.
 
 ## Decision and preserved contracts
 
@@ -9,7 +11,7 @@ Replace Clerk with a self-hosted Better Auth instance behind Ringee's backend. K
 The inspected source establishes these constraints:
 
 - `User.id` and `Organization.id` are `String @id @default(uuid()) @db.Uuid`. Every downstream ownership reference must retain these IDs.
-- `User.clerkId` is already nullable and unique. `Organization.clerkId` is currently required and unique; new Better Auth organizations need it nullable.
+- `User.clerkId` is already nullable and unique. `Organization.clerkId` was required and unique upstream; the merged additive auth migration makes it nullable while retaining uniqueness.
 - `OrganizationMembership.id` is UUID; `organizationId` is required UUID, `userId` is nullable UUID for legacy unresolved invitations, and `clerkUserId` is nullable. Preserve unique pairs `organizationId/userId`, `organizationId/clerkUserId`, and `organizationId/extension`.
 - **There is no RoleEnum in this Ringee schema.** `OrganizationMembership.role` is `String`; `OrgAdminGuard`, `resolveMemberFilter`, and `createDashboardContext` recognize the exact domain value `org:admin`.
 - `UserEmail.email` is globally unique. Verification status is `EmailStatus.pending|verified|unverified`; its primary-email and alias behavior cannot be replaced with an unverified email claim.
@@ -18,7 +20,7 @@ The inspected source establishes these constraints:
 - The actual super-admin guard has **no fallback allowlist**. Its source overrides stale prose in BUSINESS_RULES.md claiming a hard-coded fallback.
 - `20261011000000_fresh_install_baseline` is for empty schemas. Preserve the following `20261012000000_email_streams` migration and the `EmailDomain`, `EmailIdentity`, `EmailPreference`, `EmailSuppression`, `EmailDelivery`, `EmailEvent`, and `EmailUnsubscribeToken` models from cumulative patch 0003.
 
-Source basis: upstream Ringee revision `b04a4b889a9c827e76f64574f6f3b2f1c5f79241`, the earlier source inspection recorded during this work, and the business-OS migration/MCP/SES patches. Cloud handoff identifies business-OS `main` revision prefix `cddeed4`; revalidate the current full commit and patch order before implementation. The upstream code is not vendored in the control repository; reconstruct it in a disposable **cloud** checkout and apply the active cumulative patch according to the repository's source manifest. Do not apply superseded patches twice.
+Source basis: upstream Ringee revision `b04a4b889a9c827e76f64574f6f3b2f1c5f79241`, the earlier source inspection recorded during this work, and the business-OS migration/MCP/SES patches. The merged integration base for the next application phase is `bd2a3cda1a31182e7a7f89d004835f5191ee0c3b`; revalidate the current full commit and patch order before implementation. The upstream code is not vendored in the control repository; reconstruct it in a disposable **cloud** checkout and apply the active cumulative patch according to the repository's source manifest. Do not apply superseded patches twice.
 
 ## 1. Prove the integration before broad edits
 

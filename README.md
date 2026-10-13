@@ -10,9 +10,9 @@ Internal business platform integrating Twenty (canonical CRM), Ringee (calling e
 
 ## Current work
 
-The first local implementation fixes authenticated Ringee MCP access and fresh-database bootstrap. See [foundation status](docs/implementation/foundation-status.md) for code, checks and remaining gates.
+The integration foundations are committed on GitHub. Merged changes cover authenticated Ringee MCP access, fresh-database bootstrap, SES transport, OpenRouter text routing, production-image build checks, and dormant Better Auth storage. See [current implementation status](docs/implementation/current-status.md) for verified checks and remaining application work.
 
-The first Phase 0 static source audit is complete; production release selection and runtime verification remain open. Five upstream repositories are checked out under `upstream/`, excluded from this repository, and pinned in [the source lock](config/upstream-lock.json). Pins represent discovery snapshots, not production release choices. Source inspection does not demonstrate runtime behavior.
+The Phase 0 static source audit is complete. Five upstream repositories are pinned in [the source lock](config/upstream-lock.json) and reconstructed under `upstream/` in disposable CI workspaces, excluded from this repository. Pins represent discovery snapshots, not production release choices. Source inspection does not demonstrate runtime behavior.
 
 ```sh
 python3 scripts/checkout_sources.py
@@ -23,9 +23,9 @@ python3 scripts/prepare_component.py ringee-app
 
 Checkout tooling recreates missing sources at the locked commits and leaves existing directories untouched. Verification fails for changed revisions, remotes, or tracked/untracked local changes. Upstream repositories retain their own origin remotes; no public forks have been created.
 
-The local AWS SES migration and target encryption secret generation are recorded
+The AWS SES migration and target encryption secret generation are recorded
 in [provider migration status](docs/implementation/provider-migration-status.md).
-WhatsApp is retained; Better Auth migration remains pending.
+WhatsApp is retained. Better Auth runtime, hashed-session and real Prisma adapter proofs pass; the application login cutover remains in progress.
 
 The six SES stream domains in Canada Central are verified. Automated production
 senders use `noreply` on their stream subdomain; outreach is disabled by policy.
