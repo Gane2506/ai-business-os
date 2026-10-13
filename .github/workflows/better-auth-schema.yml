@@ -1,0 +1,67 @@
+name: Better Auth schema foundation
+
+on:
+  push:
+    paths:
+      - 'validation/better-auth-schema/**'
+      - 'patches/ringee-app/**'
+      - 'config/component-patches.json'
+      - '.github/workflows/better-auth-schema.yml'
+  pull_request:
+    paths:
+      - 'validation/better-auth-schema/**'
+      - 'patches/ringee-app/**'
+      - 'config/component-patches.json'
+      - '.github/workflows/better-auth-schema.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  schema-invariants:
+    name: Auth schema (PostgreSQL ${{ matrix.postgres-major }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - postgres-major: '16'
+            postgres-image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+          - postgres-major: '17'
+            postgres-image: postgres:17-alpine
+    services:
+      postgres:
+        image: ${{ matrix.postgres-image }}
+        env:
+          POSTGRES_USER: ringee_ci
+          POSTGRES_PASSWORD: ringee_ci
+          POSTGRES_DB: ringee_ci
+        options: >-
+          --health-cmd "pg_isready -U ringee_ci -d ringee_ci"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Recreate the pinned and patched source
+        run: |
+          python3 scripts/checkout_sources.py
+          python3 scripts/check_sources.py
+          python3 scripts/prepare_component.py ringee-app
+      - name: Verify additive auth migration against retained identities and SQL contracts
+        run: |
+          set -euo pipefail
+          sql() {
+            docker exec -i "${{ job.services.postgres.id }}" psql -X -v ON_ERROR_STOP=1 -U ringee_ci -d ringee_ci < "$1"
+          }
+          sql workspaces/ringee-app/packages/database/prisma/migrations/20261011000000_fresh_install_baseline/migration.sql
+          sql workspaces/ringee-app/packages/database/prisma/migrations/20261012000000_email_streams/migration.sql
+          sql validation/better-auth-schema/fixtures-before.sql
+          sql workspaces/ringee-app/packages/database/prisma/migrations/20261012010000_auth_foundation/migration.sql
+          sql validation/better-auth-schema/invariants.sql
+          sql workspaces/ringee-app/packages/database/prisma/tests/bootstrap-invariants.sql
+          sql workspaces/ringee-app/packages/database/prisma/tests/email-invariants.sql

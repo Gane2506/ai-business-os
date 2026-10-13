@@ -6870,26 +6870,52 @@ index 0000000..54a0410
 +# Please add this file in your version-control system (i.e. Git)
 +provider = "postgresql"
 diff --git a/packages/database/prisma/schema.prisma b/packages/database/prisma/schema.prisma
-index 6fa8332..3128319 100644
 --- a/packages/database/prisma/schema.prisma
 +++ b/packages/database/prisma/schema.prisma
-@@ -410,6 +410,7 @@ model User {
+@@ -370,6 +370,10 @@
+ model User {
+   id                    String    @id @default(uuid()) @db.Uuid
+   clerkId               String?   @unique
++  /// Null means a legacy identity has not been enrolled into Better Auth.
++  authEmail             String?   @unique
++  authName              String?
++  authEmailVerified     Boolean   @default(false)
+   firstName             String?
+   lastName              String?
+   imageUrl              String?
+@@ -410,6 +414,10 @@
    // Missing keys mean "default on" so older rows keep current behavior.
    notificationPreferences Json?
  
++  authSessions            AuthSession[]
++  authAccounts            AuthAccount[]
++  authInvitationsSent     AuthInvitation[]
 +  emailDomains            EmailDomain[]
    emails                  UserEmail[]
    chatAuths               ChatAuth[]
    calls                   Call[]
-@@ -553,6 +554,7 @@ model Organization {
+@@ -543,7 +551,7 @@
+ 
+ model Organization {
+   id            String   @id @default(uuid()) @db.Uuid
+-  clerkId       String   @unique
++  clerkId       String?  @unique
+   name          String
+   slug          String?  @unique
+   imageUrl      String?
+@@ -553,6 +561,11 @@
    createdBy     String?
    encryptionKey String?  @db.Text
  
++  /// Better Auth organization metadata is serialized JSON text.
++  authMetadata           String?                    @db.Text
++  authSessions           AuthSession[]
++  authInvitations        AuthInvitation[]
 +  emailDomains           EmailDomain[]
    members                OrganizationMembership[]
    chatAuths              ChatAuth[]
    calls                  Call[]
-@@ -1919,17 +1921,17 @@ model ContactList {
+@@ -1919,17 +1932,17 @@
  
  /// A contact's place in a list: once per list, while one contact can be in many.
  model ContactListEntry {
@@ -6914,7 +6940,7 @@ index 6fa8332..3128319 100644
    /// When a call to the contact was found after it joined the list — placed by
    /// anyone in the workspace, from any surface. The list records it from the
    /// workspace's calls (LIST-005); null while the contact is still to call.
-@@ -4944,3 +4946,124 @@ model InboundRingAttempt {
+@@ -4944,3 +4957,199 @@
    @@index([providerCallSessionId])
    @@index([recipientCallSessionId])
  }
@@ -7038,6 +7064,81 @@ index 6fa8332..3128319 100644
 +  domain    EmailDomain             @relation(fields: [domainId], references: [id], onDelete: Cascade)
 +
 +  @@index([domainId, email])
++}
++
++/// Dormant Better Auth 1.7.7 session storage. The adapter must digest logical
++/// token before persistence; mapping the field alone does not hash a token.
++model AuthSession {
++  id                   String        @id @default(uuid()) @db.Uuid
++  userId               String        @db.Uuid
++  tokenHash            String        @unique
++  expiresAt            DateTime
++  createdAt            DateTime      @default(now())
++  updatedAt            DateTime      @updatedAt
++  ipAddress            String?
++  userAgent            String?
++  activeOrganizationId String?       @db.Uuid
++  user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
++  activeOrganization   Organization? @relation(fields: [activeOrganizationId], references: [id], onDelete: Cascade)
++
++  @@index([userId])
++  @@index([expiresAt])
++  @@index([activeOrganizationId])
++}
++
++/// OAuth token encryption and password hashing are adapter responsibilities.
++/// OAuth remains disabled until its encrypt/decrypt and identity proofs pass.
++model AuthAccount {
++  id                    String    @id @default(uuid()) @db.Uuid
++  userId                String    @db.Uuid
++  accountId             String
++  providerId            String
++  accessTokenEncrypted  String?   @db.Text
++  refreshTokenEncrypted String?   @db.Text
++  idTokenEncrypted      String?   @db.Text
++  accessTokenExpiresAt  DateTime?
++  refreshTokenExpiresAt DateTime?
++  scope                 String?
++  passwordHash          String?   @db.Text
++  createdAt             DateTime  @default(now())
++  updatedAt             DateTime  @updatedAt
++  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
++
++  @@unique([providerId, accountId])
++  @@index([userId])
++}
++
++/// Reserved protected storage; identifier lookup and value recovery must be
++/// proven for each enabled verification flow before writing these rows.
++model AuthVerification {
++  id             String   @id @default(uuid()) @db.Uuid
++  identifierHash String
++  valueEncrypted String   @db.Text
++  expiresAt      DateTime
++  createdAt      DateTime @default(now())
++  updatedAt      DateTime @updatedAt
++
++  @@index([identifierHash])
++  @@index([expiresAt])
++}
++
++/// New invitations are distinct from unresolved legacy membership rows.
++model AuthInvitation {
++  id             String       @id @default(uuid()) @db.Uuid
++  organizationId String       @db.Uuid
++  inviterId      String       @db.Uuid
++  email          String
++  role           String?
++  status         String       @default("pending")
++  expiresAt      DateTime
++  createdAt      DateTime     @default(now())
++  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
++  inviter        User         @relation(fields: [inviterId], references: [id], onDelete: Cascade)
++
++  @@index([organizationId])
++  @@index([inviterId])
++  @@index([email])
++  @@index([expiresAt])
 +}
 diff --git a/packages/database/prisma/tests/bootstrap-invariants.sql b/packages/database/prisma/tests/bootstrap-invariants.sql
 new file mode 100644
@@ -11253,3 +11354,141 @@ index 48440c8..3cd63ce 100644
 -  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
 +  "exclude": ["node_modules", "test", "dist", "**/*spec.ts", "**/*.test.ts"]
  }
+diff --git a/packages/database/prisma/migrations/20261012010000_auth_foundation/migration.sql b/packages/database/prisma/migrations/20261012010000_auth_foundation/migration.sql
+new file mode 100644
+--- /dev/null
++++ b/packages/database/prisma/migrations/20261012010000_auth_foundation/migration.sql
+@@ -0,0 +1,133 @@
++-- Additive storage only; no legacy enrollment, role conversion, or auth cutover.
++-- AlterTable
++ALTER TABLE "User" ADD COLUMN     "authEmail" TEXT,
++ADD COLUMN     "authEmailVerified" BOOLEAN NOT NULL DEFAULT false,
++ADD COLUMN     "authName" TEXT;
++
++-- AlterTable
++ALTER TABLE "Organization" ADD COLUMN     "authMetadata" TEXT,
++ALTER COLUMN "clerkId" DROP NOT NULL;
++
++-- CreateTable
++CREATE TABLE "AuthSession" (
++    "id" UUID NOT NULL,
++    "userId" UUID NOT NULL,
++    "tokenHash" TEXT NOT NULL,
++    "expiresAt" TIMESTAMP(3) NOT NULL,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++    "ipAddress" TEXT,
++    "userAgent" TEXT,
++    "activeOrganizationId" UUID,
++
++    CONSTRAINT "AuthSession_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateTable
++CREATE TABLE "AuthAccount" (
++    "id" UUID NOT NULL,
++    "userId" UUID NOT NULL,
++    "accountId" TEXT NOT NULL,
++    "providerId" TEXT NOT NULL,
++    "accessTokenEncrypted" TEXT,
++    "refreshTokenEncrypted" TEXT,
++    "idTokenEncrypted" TEXT,
++    "accessTokenExpiresAt" TIMESTAMP(3),
++    "refreshTokenExpiresAt" TIMESTAMP(3),
++    "scope" TEXT,
++    "passwordHash" TEXT,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "AuthAccount_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateTable
++CREATE TABLE "AuthVerification" (
++    "id" UUID NOT NULL,
++    "identifierHash" TEXT NOT NULL,
++    "valueEncrypted" TEXT NOT NULL,
++    "expiresAt" TIMESTAMP(3) NOT NULL,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "AuthVerification_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateTable
++CREATE TABLE "AuthInvitation" (
++    "id" UUID NOT NULL,
++    "organizationId" UUID NOT NULL,
++    "inviterId" UUID NOT NULL,
++    "email" TEXT NOT NULL,
++    "role" TEXT,
++    "status" TEXT NOT NULL DEFAULT 'pending',
++    "expiresAt" TIMESTAMP(3) NOT NULL,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++
++    CONSTRAINT "AuthInvitation_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateIndex
++CREATE UNIQUE INDEX "AuthSession_tokenHash_key" ON "AuthSession"("tokenHash");
++
++-- CreateIndex
++CREATE INDEX "AuthSession_userId_idx" ON "AuthSession"("userId");
++
++-- CreateIndex
++CREATE INDEX "AuthSession_expiresAt_idx" ON "AuthSession"("expiresAt");
++
++-- CreateIndex
++CREATE INDEX "AuthSession_activeOrganizationId_idx" ON "AuthSession"("activeOrganizationId");
++
++-- CreateIndex
++CREATE INDEX "AuthAccount_userId_idx" ON "AuthAccount"("userId");
++
++-- CreateIndex
++CREATE UNIQUE INDEX "AuthAccount_providerId_accountId_key" ON "AuthAccount"("providerId", "accountId");
++
++-- CreateIndex
++CREATE INDEX "AuthVerification_identifierHash_idx" ON "AuthVerification"("identifierHash");
++
++-- CreateIndex
++CREATE INDEX "AuthVerification_expiresAt_idx" ON "AuthVerification"("expiresAt");
++
++-- CreateIndex
++CREATE INDEX "AuthInvitation_organizationId_idx" ON "AuthInvitation"("organizationId");
++
++-- CreateIndex
++CREATE INDEX "AuthInvitation_inviterId_idx" ON "AuthInvitation"("inviterId");
++
++-- CreateIndex
++CREATE INDEX "AuthInvitation_email_idx" ON "AuthInvitation"("email");
++
++-- CreateIndex
++CREATE INDEX "AuthInvitation_expiresAt_idx" ON "AuthInvitation"("expiresAt");
++
++-- CreateIndex
++CREATE UNIQUE INDEX "User_authEmail_key" ON "User"("authEmail");
++
++-- AddForeignKey
++ALTER TABLE "AuthSession" ADD CONSTRAINT "AuthSession_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "AuthSession" ADD CONSTRAINT "AuthSession_activeOrganizationId_fkey" FOREIGN KEY ("activeOrganizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "AuthAccount" ADD CONSTRAINT "AuthAccount_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "AuthInvitation" ADD CONSTRAINT "AuthInvitation_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "AuthInvitation" ADD CONSTRAINT "AuthInvitation_inviterId_fkey" FOREIGN KEY ("inviterId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++-- SQL-only guard: the adapter still owns token digestion.
++ALTER TABLE "AuthSession" ADD CONSTRAINT "AuthSession_tokenHash_format"
++  CHECK ("tokenHash" ~ '^h1\.[0-9a-f]{64}$');
++ALTER TABLE "User" ADD CONSTRAINT "User_authEnrollment_shape" CHECK (
++  ("authEmail" IS NULL AND "authName" IS NULL AND NOT "authEmailVerified") OR
++  ("authEmail" IS NOT NULL AND "authName" IS NOT NULL AND
++   "authEmail" = lower(btrim("authEmail")) AND length("authEmail") > 0 AND
++   length(btrim("authName")) > 0)
++);
