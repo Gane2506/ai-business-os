@@ -7,6 +7,10 @@ on:
       - 'validation/better-auth-sessions/**'
       - 'patches/ringee-app/**'
       - 'config/component-patches.json'
+      - 'config/upstream-lock.json'
+      - 'scripts/checkout_sources.py'
+      - 'scripts/check_sources.py'
+      - 'scripts/prepare_component.py'
       - '.github/workflows/better-auth-prisma.yml'
   pull_request:
     paths:
@@ -14,6 +18,10 @@ on:
       - 'validation/better-auth-sessions/**'
       - 'patches/ringee-app/**'
       - 'config/component-patches.json'
+      - 'config/upstream-lock.json'
+      - 'scripts/checkout_sources.py'
+      - 'scripts/check_sources.py'
+      - 'scripts/prepare_component.py'
       - '.github/workflows/better-auth-prisma.yml'
 
 permissions:
