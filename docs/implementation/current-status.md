@@ -1,5 +1,7 @@
 # Implementation status
 
+> This is the earlier foundation snapshot. For the complete 2026-10-15 status, open PR, pushed lockfile repair, deployment limits and continuation plan, read [HANDOFF.md](HANDOFF.md).
+
 Updated 2026-10-13. The authoritative integration code is in this private GitHub repository. Upstream applications are reconstructed from locked commits and the registered cumulative patch; they are not missing vendored directories.
 
 ## Merged and verified
@@ -12,9 +14,8 @@ Updated 2026-10-13. The authoritative integration code is in this private GitHub
 | Hashed session adapter and scoped session management proof | [PR 4](https://github.com/Gane2506/ai-business-os/pull/4) | Nine isolated Better Auth tests passed. |
 | Additive Better Auth storage foundation | [PR 5](https://github.com/Gane2506/ai-business-os/pull/5) | Fresh migrations, preserved SQL invariants, backend compile and runtime-image build passed. |
 | Real generated Prisma/Better Auth adapter proof | [PR 6](https://github.com/Gane2506/ai-business-os/pull/6) | Five real integration tests passed on each PostgreSQL 16 and 17 database. |
-| Protected verification storage proof | [PR 8](https://github.com/Gane2506/ai-business-os/pull/8) | Nine memory tests and five real Prisma tests passed on each PostgreSQL 16 and 17 job, including independent-context concurrent consumption. |
 
-The merged base for the next authentication work is `c2114773b65bdd16b964246e99b5ea17936e9ca8`. Source reconstruction is controlled by `config/upstream-lock.json` and `config/component-patches.json`. Only the registered cumulative Ringee patch is applied; older patch files are historical artifacts.
+The merged base for the next authentication work is `bd2a3cda1a31182e7a7f89d004835f5191ee0c3b`. Source reconstruction is controlled by `config/upstream-lock.json` and `config/component-patches.json`. Only the registered cumulative Ringee patch is applied; older patch files are historical artifacts.
 
 ## Authentication work in progress
 
@@ -22,7 +23,7 @@ The user selected email and password, with shared login across the AI Business O
 
 The storage migration and runtime proofs are dormant foundations. Clerk remains the active application authentication provider until backend, frontend, provisioning, phone verification, realtime and external-consumer replacements are integrated and verified. No application cutover or production enrollment is claimed by the proofs.
 
-Current work covers the backend principal/runtime boundary, frontend auth facade and sign-in flow, and application composition of the now-verified protected verification-record adapter. OAuth, extension/ChatGPT parity and account lifecycle paths require their own verified integration. Proof-only disabled routes must not be mistaken for complete production password-reset/account-management behavior.
+Current work covers the backend principal/runtime boundary, frontend auth facade and sign-in flow, and protected verification-record storage. OAuth, extension/ChatGPT parity and account lifecycle paths require their own verified integration. Proof-only disabled routes must not be mistaken for complete production password-reset/account-management behavior.
 
 ## Production gates still open
 
