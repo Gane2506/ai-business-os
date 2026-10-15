@@ -1,5 +1,7 @@
 # AI Business OS
 
+**Start here:** [Complete implementation handoff (2026-10-15)](docs/implementation/HANDOFF.md) · [Prompt for the next AI](docs/implementation/AI_CONTINUATION_PROMPT.md) · [Open authentication application stage, PR 9](https://github.com/Gane2506/ai-business-os/pull/9).
+
 Private integration repository: [Gane2506/ai-business-os](https://github.com/Gane2506/ai-business-os).
 This repository versions our integration code, deployment tooling, source pins,
 and cumulative source patches. The large upstream checkouts and generated

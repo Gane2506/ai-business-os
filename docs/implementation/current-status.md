@@ -1,5 +1,7 @@
 # Implementation status
 
+> This is the earlier foundation snapshot. For the complete 2026-10-15 status, open PR, pushed lockfile repair, deployment limits and continuation plan, read [HANDOFF.md](HANDOFF.md).
+
 Updated 2026-10-13. The authoritative integration code is in this private GitHub repository. Upstream applications are reconstructed from locked commits and the registered cumulative patch; they are not missing vendored directories.
 
 ## Merged and verified
