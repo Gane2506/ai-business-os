@@ -1,0 +1,14 @@
+{
+  "region": "ca-central-1",
+  "rootDomain": "connectxmedia.com",
+  "localPart": "noreply",
+  "senders": {
+    "AUTH": "noreply@auth.connectxmedia.com",
+    "TRANSACTIONAL": "noreply@tx.connectxmedia.com",
+    "COMMUNICATION": "noreply@mail.connectxmedia.com",
+    "MARKETING": "noreply@news.connectxmedia.com",
+    "PROMOTIONAL": "noreply@offers.connectxmedia.com",
+    "OUTREACH": "noreply@outreach.connectxmedia.com"
+  },
+  "outreachEnabled": false
+}

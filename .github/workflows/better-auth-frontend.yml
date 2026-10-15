@@ -1,0 +1,78 @@
+name: Better Auth frontend stage
+
+on:
+  push:
+    paths:
+      - 'validation/better-auth-frontend/**'
+      - 'patches/ringee-app/**'
+      - 'config/component-patches.json'
+      - 'config/upstream-lock.json'
+      - 'scripts/checkout_sources.py'
+      - 'scripts/check_sources.py'
+      - 'scripts/prepare_component.py'
+      - '.github/workflows/better-auth-frontend.yml'
+  pull_request:
+    paths:
+      - 'validation/better-auth-frontend/**'
+      - 'patches/ringee-app/**'
+      - 'config/component-patches.json'
+      - 'config/upstream-lock.json'
+      - 'scripts/checkout_sources.py'
+      - 'scripts/check_sources.py'
+      - 'scripts/prepare_component.py'
+      - '.github/workflows/better-auth-frontend.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_OPTIONS: --max-old-space-size=3072
+      DATABASE_URL: postgresql://frontend_ci:frontend_ci@127.0.0.1:5432/frontend_ci
+      EMAIL_SEND_ENABLED: 'false'
+      AI_PROVIDER: openrouter
+      OPENROUTER_API_KEY: ci-placeholder-not-a-secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Reconstruct the pinned application
+        run: |
+          python3 scripts/checkout_sources.py
+          python3 scripts/check_sources.py
+          python3 scripts/prepare_component.py ringee-app
+      - name: Read the pinned package manager
+        id: package-manager
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+          package = json.loads(Path('workspaces/ringee-app/package.json').read_text())
+          print('version=' + package['packageManager'].removeprefix('pnpm@'))
+          PY
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ steps.package-manager.outputs.version }}
+          run_install: false
+      - name: Install the actual frontend and tooling dependency graph
+        working-directory: workspaces/ringee-app
+        run: >-
+          pnpm install --frozen-lockfile --ignore-scripts
+          --filter './apps/frontend...'
+          --filter './packages/frontend-shared...'
+          --filter './packages/database...'
+          --filter '.'
+      - name: Generate database types without connecting to a database
+        working-directory: workspaces/ringee-app
+        run: packages/database/node_modules/.bin/prisma generate --schema packages/database/prisma/schema.prisma
+      - name: Check source types, lint, formatting, and mocked authentication transport
+        run: node validation/better-auth-frontend/check.mjs workspaces/ringee-app

@@ -1,0 +1,32 @@
+{
+  "status": "not_configured",
+  "target": {
+    "environment": "staging",
+    "host": "",
+    "cpu_cores": null,
+    "ram_gib": null,
+    "disk_gib": null,
+    "existing_services": [],
+    "reserved_ports": []
+  },
+  "domains": {
+    "twenty": "",
+    "ringee_app": "",
+    "ringee_api": "",
+    "mautic": ""
+  },
+  "providers": {
+    "telephony": "pending_source_and_runtime_validation",
+    "email_delivery": "",
+    "identity": "",
+    "object_storage": ""
+  },
+  "operations": {
+    "secret_store_reference": "",
+    "backup_destination_reference": "",
+    "recording_retention_days": null,
+    "transcript_retention_days": null,
+    "isolated_client_count": null,
+    "test_recipient_reference": ""
+  }
+}

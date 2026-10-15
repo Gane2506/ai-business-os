@@ -1,0 +1,143 @@
+{
+  "recorded_at_utc": "2026-10-11T14:40:05.363495+00:00",
+  "audit_source_commit": "444332cf51cb5e451b85d5b2f2b3e04156006d35",
+  "release": {
+    "tag_name": "twenty/v2.45.0",
+    "published_at": "2026-10-05T15:27:44Z",
+    "html_url": "https://github.com/twentyhq/twenty/releases/tag/twenty/v2.45.0",
+    "prerelease": false
+  },
+  "release_commit": "7e1431c84adbb264db98ab8b8d008a8401b6d4d6",
+  "images": [
+    {
+      "repository": "twentycrm/twenty",
+      "tag": "v2.45.0",
+      "index_digest": "sha256:81b6444c146fc39aec5e8de6ff6f996c78714910abf117f129ba78c925690dfd",
+      "platforms": [
+        {
+          "mediaType": "application/vnd.oci.image.manifest.v1+json",
+          "digest": "sha256:77fdcc738d2aa84829296e5072805258be4fab73161e878fac58e52b0040a1fd",
+          "size": 5232,
+          "platform": {
+            "architecture": "amd64",
+            "os": "linux"
+          }
+        },
+        {
+          "mediaType": "application/vnd.oci.image.manifest.v1+json",
+          "digest": "sha256:59506f40dec003b3bf412363c11afd668edca7ecf30d60a2315e91cdf316718b",
+          "size": 5232,
+          "platform": {
+            "architecture": "arm64",
+            "os": "linux"
+          }
+        }
+      ],
+      "amd64_labels": {
+        "org.opencontainers.image.description": "Building a modern alternative to Salesforce, powered by the community.",
+        "org.opencontainers.image.documentation": "https://docs.twenty.com/",
+        "org.opencontainers.image.licenses": "AGPL-3.0",
+        "org.opencontainers.image.source": "https://github.com/twentyhq/twenty",
+        "org.opencontainers.image.title": "twenty",
+        "org.opencontainers.image.url": "https://twenty.com/"
+      },
+      "registry_url": "https://registry-1.docker.io/v2/twentycrm/twenty/manifests/v2.45.0"
+    },
+    {
+      "repository": "library/postgres",
+      "tag": "16.15-bookworm",
+      "index_digest": "sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4",
+      "platforms": [
+        {
+          "annotations": {
+            "com.docker.official-images.bashbrew.arch": "amd64",
+            "org.opencontainers.image.base.digest": "sha256:a4672c0cb26fbdde88e38fa2dfb6c681942306680e41e4378b28770b6e79ee91",
+            "org.opencontainers.image.base.name": "debian:bookworm-slim",
+            "org.opencontainers.image.created": "2026-10-06T01:33:15Z",
+            "org.opencontainers.image.revision": "9d15534160ade17f2b6c455a39ee967c49b1937d",
+            "org.opencontainers.image.source": "https://github.com/docker-library/postgres.git#9d15534160ade17f2b6c455a39ee967c49b1937d:16/bookworm",
+            "org.opencontainers.image.url": "https://hub.docker.com/_/postgres",
+            "org.opencontainers.image.version": "16.15-bookworm"
+          },
+          "digest": "sha256:ec9f656f17c8b4dfebf49e58cf5c46d493d4846d4ea6d8b85d0637f68ee33bfc",
+          "mediaType": "application/vnd.oci.image.manifest.v1+json",
+          "platform": {
+            "architecture": "amd64",
+            "os": "linux"
+          },
+          "size": 3641
+        },
+        {
+          "annotations": {
+            "com.docker.official-images.bashbrew.arch": "arm64v8",
+            "org.opencontainers.image.base.digest": "sha256:a1b86db52ce3daef089e45aabe36dfec4091f82464c25c1fdcf03de197cbe82a",
+            "org.opencontainers.image.base.name": "debian:bookworm-slim",
+            "org.opencontainers.image.created": "2026-10-06T01:36:10Z",
+            "org.opencontainers.image.revision": "9d15534160ade17f2b6c455a39ee967c49b1937d",
+            "org.opencontainers.image.source": "https://github.com/docker-library/postgres.git#9d15534160ade17f2b6c455a39ee967c49b1937d:16/bookworm",
+            "org.opencontainers.image.url": "https://hub.docker.com/_/postgres",
+            "org.opencontainers.image.version": "16.15-bookworm"
+          },
+          "digest": "sha256:6b0faa930dc29e5af5af9b50081ad496fad106b85a88ad66aea01f11d4494733",
+          "mediaType": "application/vnd.oci.image.manifest.v1+json",
+          "platform": {
+            "architecture": "arm64",
+            "os": "linux",
+            "variant": "v8"
+          },
+          "size": 3643
+        }
+      ],
+      "amd64_labels": {},
+      "registry_url": "https://registry-1.docker.io/v2/library/postgres/manifests/16.15-bookworm"
+    },
+    {
+      "repository": "library/redis",
+      "tag": "8.2.10-bookworm",
+      "index_digest": "sha256:47670742d7924adbcdb404d1288b6327815b23141969c0939b8e5d61f78c2634",
+      "platforms": [
+        {
+          "annotations": {
+            "com.docker.official-images.bashbrew.arch": "amd64",
+            "org.opencontainers.image.base.digest": "sha256:a4672c0cb26fbdde88e38fa2dfb6c681942306680e41e4378b28770b6e79ee91",
+            "org.opencontainers.image.base.name": "debian:bookworm-slim",
+            "org.opencontainers.image.created": "2026-10-06T01:34:09Z",
+            "org.opencontainers.image.revision": "78ec6fbd0dcf6ea97b4828244ae5f7ec4d04d01a",
+            "org.opencontainers.image.source": "https://github.com/redis/docker-library-redis.git#78ec6fbd0dcf6ea97b4828244ae5f7ec4d04d01a:debian",
+            "org.opencontainers.image.url": "https://hub.docker.com/_/redis",
+            "org.opencontainers.image.version": "8.2.10"
+          },
+          "digest": "sha256:a1da393d1b8099236b645f1471d2e93bcdcdcbbf7e829b38bcc9b71227f0a901",
+          "mediaType": "application/vnd.oci.image.manifest.v1+json",
+          "platform": {
+            "architecture": "amd64",
+            "os": "linux"
+          },
+          "size": 2289
+        },
+        {
+          "annotations": {
+            "com.docker.official-images.bashbrew.arch": "arm64v8",
+            "org.opencontainers.image.base.digest": "sha256:a1b86db52ce3daef089e45aabe36dfec4091f82464c25c1fdcf03de197cbe82a",
+            "org.opencontainers.image.base.name": "debian:bookworm-slim",
+            "org.opencontainers.image.created": "2026-10-06T01:37:03Z",
+            "org.opencontainers.image.revision": "78ec6fbd0dcf6ea97b4828244ae5f7ec4d04d01a",
+            "org.opencontainers.image.source": "https://github.com/redis/docker-library-redis.git#78ec6fbd0dcf6ea97b4828244ae5f7ec4d04d01a:debian",
+            "org.opencontainers.image.url": "https://hub.docker.com/_/redis",
+            "org.opencontainers.image.version": "8.2.10"
+          },
+          "digest": "sha256:047b772192b4d0739dd6f1cf5610cd554dab1137828c54ec894614be3618a9f6",
+          "mediaType": "application/vnd.oci.image.manifest.v1+json",
+          "platform": {
+            "architecture": "arm64",
+            "os": "linux",
+            "variant": "v8"
+          },
+          "size": 2291
+        }
+      ],
+      "amd64_labels": {},
+      "registry_url": "https://registry-1.docker.io/v2/library/redis/manifests/8.2.10-bookworm"
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenySendingOutsideChosenRegion",
+      "Effect": "Deny",
+      "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail",
+        "ses:SendBulkEmail"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": "ca-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "DenyAllOtherSenderAddresses",
+      "Effect": "Deny",
+      "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail",
+        "ses:SendBulkEmail"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "ses:FromAddress": [
+            "noreply@news.connectxmedia.com",
+            "noreply@offers.connectxmedia.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "SendMARKETING",
+      "Effect": "Allow",
+      "Action": "ses:SendRawEmail",
+      "Resource": [
+        "arn:aws:ses:ca-central-1:123456789012:identity/news.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:123456789012:configuration-set/ses-marketing"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1",
+          "ses:FromAddress": "noreply@news.connectxmedia.com"
+        }
+      }
+    },
+    {
+      "Sid": "SendPROMOTIONAL",
+      "Effect": "Allow",
+      "Action": "ses:SendRawEmail",
+      "Resource": [
+        "arn:aws:ses:ca-central-1:123456789012:identity/offers.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:123456789012:configuration-set/ses-promotional"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1",
+          "ses:FromAddress": "noreply@offers.connectxmedia.com"
+        }
+      }
+    }
+  ]
+}

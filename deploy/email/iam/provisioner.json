@@ -1,0 +1,86 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AccountRead",
+      "Effect": "Allow",
+      "Action": "ses:GetAccount",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "ManagePlannedIdentities",
+      "Effect": "Allow",
+      "Action": [
+        "ses:GetEmailIdentity",
+        "ses:CreateEmailIdentity",
+        "ses:PutEmailIdentityDkimAttributes",
+        "ses:PutEmailIdentityMailFromAttributes"
+      ],
+      "Resource": [
+        "arn:aws:ses:ca-central-1:*:identity/auth.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:*:identity/tx.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:*:identity/mail.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:*:identity/news.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:*:identity/offers.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:*:identity/outreach.connectxmedia.com"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "ManagePlannedConfigurationSets",
+      "Effect": "Allow",
+      "Action": [
+        "ses:GetConfigurationSet",
+        "ses:CreateConfigurationSet",
+        "ses:GetConfigurationSetEventDestinations",
+        "ses:CreateConfigurationSetEventDestination"
+      ],
+      "Resource": [
+        "arn:aws:ses:ca-central-1:*:configuration-set/ses-auth",
+        "arn:aws:ses:ca-central-1:*:configuration-set/ses-transactional",
+        "arn:aws:ses:ca-central-1:*:configuration-set/ses-communication",
+        "arn:aws:ses:ca-central-1:*:configuration-set/ses-marketing",
+        "arn:aws:ses:ca-central-1:*:configuration-set/ses-promotional",
+        "arn:aws:ses:ca-central-1:*:configuration-set/ses-outreach"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1"
+        }
+      }
+    },
+    {
+      "Sid": "AssociatePlannedConfigurationSets",
+      "Effect": "Allow",
+      "Action": "ses:PutEmailIdentityConfigurationSetAttributes",
+      "Resource": [
+        "arn:aws:ses:ca-central-1:*:identity/auth.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:*:identity/tx.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:*:identity/mail.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:*:identity/news.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:*:identity/offers.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:*:identity/outreach.connectxmedia.com",
+        "arn:aws:ses:ca-central-1:*:configuration-set/ses-auth",
+        "arn:aws:ses:ca-central-1:*:configuration-set/ses-transactional",
+        "arn:aws:ses:ca-central-1:*:configuration-set/ses-communication",
+        "arn:aws:ses:ca-central-1:*:configuration-set/ses-marketing",
+        "arn:aws:ses:ca-central-1:*:configuration-set/ses-promotional",
+        "arn:aws:ses:ca-central-1:*:configuration-set/ses-outreach"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ca-central-1"
+        }
+      }
+    }
+  ]
+}

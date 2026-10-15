@@ -1,0 +1,499 @@
+{
+  "checkedAt": "2026-10-12T03:08:00.762Z",
+  "region": "ca-central-1",
+  "status": "aws_created_dns_pending",
+  "journal": [
+    {
+      "name": "ses-auth",
+      "action": "created_configuration_set"
+    },
+    {
+      "name": "ses-transactional",
+      "action": "created_configuration_set"
+    },
+    {
+      "name": "ses-communication",
+      "action": "created_configuration_set"
+    },
+    {
+      "name": "ses-marketing",
+      "action": "created_configuration_set"
+    },
+    {
+      "name": "ses-promotional",
+      "action": "created_configuration_set"
+    },
+    {
+      "name": "ses-outreach",
+      "action": "created_configuration_set"
+    },
+    {
+      "name": "auth.connectxmedia.com",
+      "action": "created_identity"
+    },
+    {
+      "name": "auth.connectxmedia.com",
+      "action": "configured_mail_from"
+    },
+    {
+      "name": "tx.connectxmedia.com",
+      "action": "created_identity"
+    },
+    {
+      "name": "tx.connectxmedia.com",
+      "action": "configured_mail_from"
+    },
+    {
+      "name": "mail.connectxmedia.com",
+      "action": "created_identity"
+    },
+    {
+      "name": "mail.connectxmedia.com",
+      "action": "configured_mail_from"
+    },
+    {
+      "name": "news.connectxmedia.com",
+      "action": "created_identity"
+    },
+    {
+      "name": "news.connectxmedia.com",
+      "action": "configured_mail_from"
+    },
+    {
+      "name": "offers.connectxmedia.com",
+      "action": "created_identity"
+    },
+    {
+      "name": "offers.connectxmedia.com",
+      "action": "configured_mail_from"
+    },
+    {
+      "name": "outreach.connectxmedia.com",
+      "action": "created_identity"
+    },
+    {
+      "name": "outreach.connectxmedia.com",
+      "action": "configured_mail_from"
+    }
+  ],
+  "dnsRecords": [
+    {
+      "action": "create",
+      "record": {
+        "type": "MX",
+        "name": "bounce.auth.connectxmedia.com",
+        "content": "feedback-smtp.ca-central-1.amazonses.com",
+        "priority": 10,
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "TXT",
+        "name": "bounce.auth.connectxmedia.com",
+        "content": "v=spf1 include:amazonses.com ~all",
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "TXT",
+        "name": "_dmarc.auth.connectxmedia.com",
+        "content": "v=DMARC1; p=none; adkim=r; aspf=r",
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "m4io6ovdlcfoui5w5wan6kdx3riu4vg7._domainkey.auth.connectxmedia.com",
+        "content": "m4io6ovdlcfoui5w5wan6kdx3riu4vg7.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "tbl2liubagthutlwaf3bs6s6juwpiih3._domainkey.auth.connectxmedia.com",
+        "content": "tbl2liubagthutlwaf3bs6s6juwpiih3.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "4atysw2xns5urxjfhhefrytvsrlwscly._domainkey.auth.connectxmedia.com",
+        "content": "4atysw2xns5urxjfhhefrytvsrlwscly.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "MX",
+        "name": "bounce.tx.connectxmedia.com",
+        "content": "feedback-smtp.ca-central-1.amazonses.com",
+        "priority": 10,
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "TXT",
+        "name": "bounce.tx.connectxmedia.com",
+        "content": "v=spf1 include:amazonses.com ~all",
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "TXT",
+        "name": "_dmarc.tx.connectxmedia.com",
+        "content": "v=DMARC1; p=none; adkim=r; aspf=r",
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "54a3xbaluasy5ozqeo56psmzyreoavqr._domainkey.tx.connectxmedia.com",
+        "content": "54a3xbaluasy5ozqeo56psmzyreoavqr.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "pdwvmhlfu2necgx6q7kw2mel5wz2spx7._domainkey.tx.connectxmedia.com",
+        "content": "pdwvmhlfu2necgx6q7kw2mel5wz2spx7.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "zpwuiu6dx76t25jyr7pkzwqit6gq7s4y._domainkey.tx.connectxmedia.com",
+        "content": "zpwuiu6dx76t25jyr7pkzwqit6gq7s4y.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "MX",
+        "name": "bounce.mail.connectxmedia.com",
+        "content": "feedback-smtp.ca-central-1.amazonses.com",
+        "priority": 10,
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "TXT",
+        "name": "bounce.mail.connectxmedia.com",
+        "content": "v=spf1 include:amazonses.com ~all",
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "TXT",
+        "name": "_dmarc.mail.connectxmedia.com",
+        "content": "v=DMARC1; p=none; adkim=r; aspf=r",
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "uv37ohdekn5mfv72obzgr3ybdruxnrs5._domainkey.mail.connectxmedia.com",
+        "content": "uv37ohdekn5mfv72obzgr3ybdruxnrs5.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "6yejsdvdweov3wsnbvu4m3f6ahtnljfz._domainkey.mail.connectxmedia.com",
+        "content": "6yejsdvdweov3wsnbvu4m3f6ahtnljfz.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "2isy6tvuq7hyutxbrr2ipkdop7p27eh4._domainkey.mail.connectxmedia.com",
+        "content": "2isy6tvuq7hyutxbrr2ipkdop7p27eh4.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "MX",
+        "name": "bounce.news.connectxmedia.com",
+        "content": "feedback-smtp.ca-central-1.amazonses.com",
+        "priority": 10,
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "TXT",
+        "name": "bounce.news.connectxmedia.com",
+        "content": "v=spf1 include:amazonses.com ~all",
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "TXT",
+        "name": "_dmarc.news.connectxmedia.com",
+        "content": "v=DMARC1; p=none; adkim=r; aspf=r",
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "vonv7l4tcx75rkeglfhfczl6efkxlecv._domainkey.news.connectxmedia.com",
+        "content": "vonv7l4tcx75rkeglfhfczl6efkxlecv.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "2gstp4lpy6kcfsfl54rr6pigjmzjsfrg._domainkey.news.connectxmedia.com",
+        "content": "2gstp4lpy6kcfsfl54rr6pigjmzjsfrg.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "gscwwq6kqm4coqmujcvxxbvdqxexlkhw._domainkey.news.connectxmedia.com",
+        "content": "gscwwq6kqm4coqmujcvxxbvdqxexlkhw.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "MX",
+        "name": "bounce.offers.connectxmedia.com",
+        "content": "feedback-smtp.ca-central-1.amazonses.com",
+        "priority": 10,
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "TXT",
+        "name": "bounce.offers.connectxmedia.com",
+        "content": "v=spf1 include:amazonses.com ~all",
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "TXT",
+        "name": "_dmarc.offers.connectxmedia.com",
+        "content": "v=DMARC1; p=none; adkim=r; aspf=r",
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "mnbkob255dbvrhn74m2ny6daq4xcdnyz._domainkey.offers.connectxmedia.com",
+        "content": "mnbkob255dbvrhn74m2ny6daq4xcdnyz.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "lxne7axthwnrkxvbxsz4vrpnrdsgayva._domainkey.offers.connectxmedia.com",
+        "content": "lxne7axthwnrkxvbxsz4vrpnrdsgayva.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "x7stiieao4seo4pdmviu45mujk5wlztd._domainkey.offers.connectxmedia.com",
+        "content": "x7stiieao4seo4pdmviu45mujk5wlztd.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "MX",
+        "name": "bounce.outreach.connectxmedia.com",
+        "content": "feedback-smtp.ca-central-1.amazonses.com",
+        "priority": 10,
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "TXT",
+        "name": "bounce.outreach.connectxmedia.com",
+        "content": "v=spf1 include:amazonses.com ~all",
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "TXT",
+        "name": "_dmarc.outreach.connectxmedia.com",
+        "content": "v=DMARC1; p=none; adkim=r; aspf=r",
+        "ttl": 300
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "zkc6hnjrjkjy2jkrbkwkgxl324pry5vg._domainkey.outreach.connectxmedia.com",
+        "content": "zkc6hnjrjkjy2jkrbkwkgxl324pry5vg.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "vn7nmjxdsvwoo36fjtvzuhnu7jbgryll._domainkey.outreach.connectxmedia.com",
+        "content": "vn7nmjxdsvwoo36fjtvzuhnu7jbgryll.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    },
+    {
+      "action": "create",
+      "record": {
+        "type": "CNAME",
+        "name": "iujvl2kd77erw42xz4a3enjgp4lwbqck._domainkey.outreach.connectxmedia.com",
+        "content": "iujvl2kd77erw42xz4a3enjgp4lwbqck.dkim.amazonses.com",
+        "ttl": 300,
+        "proxied": false
+      }
+    }
+  ],
+  "identities": [
+    {
+      "domain": "auth.connectxmedia.com",
+      "configurationSet": "ses-auth",
+      "dkimStatus": "PENDING",
+      "verified": false,
+      "mailFrom": {
+        "MailFromDomain": "bounce.auth.connectxmedia.com",
+        "MailFromDomainStatus": "PENDING",
+        "BehaviorOnMxFailure": "REJECT_MESSAGE"
+      }
+    },
+    {
+      "domain": "tx.connectxmedia.com",
+      "configurationSet": "ses-transactional",
+      "dkimStatus": "PENDING",
+      "verified": false,
+      "mailFrom": {
+        "MailFromDomain": "bounce.tx.connectxmedia.com",
+        "MailFromDomainStatus": "PENDING",
+        "BehaviorOnMxFailure": "REJECT_MESSAGE"
+      }
+    },
+    {
+      "domain": "mail.connectxmedia.com",
+      "configurationSet": "ses-communication",
+      "dkimStatus": "PENDING",
+      "verified": false,
+      "mailFrom": {
+        "MailFromDomain": "bounce.mail.connectxmedia.com",
+        "MailFromDomainStatus": "PENDING",
+        "BehaviorOnMxFailure": "REJECT_MESSAGE"
+      }
+    },
+    {
+      "domain": "news.connectxmedia.com",
+      "configurationSet": "ses-marketing",
+      "dkimStatus": "PENDING",
+      "verified": false,
+      "mailFrom": {
+        "MailFromDomain": "bounce.news.connectxmedia.com",
+        "MailFromDomainStatus": "PENDING",
+        "BehaviorOnMxFailure": "REJECT_MESSAGE"
+      }
+    },
+    {
+      "domain": "offers.connectxmedia.com",
+      "configurationSet": "ses-promotional",
+      "dkimStatus": "PENDING",
+      "verified": false,
+      "mailFrom": {
+        "MailFromDomain": "bounce.offers.connectxmedia.com",
+        "MailFromDomainStatus": "PENDING",
+        "BehaviorOnMxFailure": "REJECT_MESSAGE"
+      }
+    },
+    {
+      "domain": "outreach.connectxmedia.com",
+      "configurationSet": "ses-outreach",
+      "dkimStatus": "PENDING",
+      "verified": false,
+      "mailFrom": {
+        "MailFromDomain": "bounce.outreach.connectxmedia.com",
+        "MailFromDomainStatus": "PENDING",
+        "BehaviorOnMxFailure": "REJECT_MESSAGE"
+      }
+    }
+  ],
+  "feedbackConfigured": false,
+  "testEmailsSent": 0
+}

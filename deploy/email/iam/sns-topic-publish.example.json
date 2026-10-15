@@ -1,0 +1,27 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublishOnlyFromPlannedSESConfigurationSets",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ses.amazonaws.com"
+      },
+      "Action": "sns:Publish",
+      "Resource": "arn:aws:sns:ca-central-1:123456789012:ai-os-ses-feedback",
+      "Condition": {
+        "StringEquals": {
+          "AWS:SourceAccount": "123456789012",
+          "AWS:SourceArn": [
+            "arn:aws:ses:ca-central-1:123456789012:configuration-set/ses-auth",
+            "arn:aws:ses:ca-central-1:123456789012:configuration-set/ses-transactional",
+            "arn:aws:ses:ca-central-1:123456789012:configuration-set/ses-communication",
+            "arn:aws:ses:ca-central-1:123456789012:configuration-set/ses-marketing",
+            "arn:aws:ses:ca-central-1:123456789012:configuration-set/ses-promotional",
+            "arn:aws:ses:ca-central-1:123456789012:configuration-set/ses-outreach"
+          ]
+        }
+      }
+    }
+  ]
+}

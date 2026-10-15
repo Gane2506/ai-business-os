@@ -1,0 +1,66 @@
+name: Ringee runtime image
+
+on:
+  push:
+    paths:
+      - 'deploy/ringee/Dockerfile'
+      - 'deploy/ringee/Dockerfile.dockerignore'
+      - 'config/upstream-lock.json'
+      - 'config/component-patches.json'
+      - 'patches/ringee-app/**'
+      - 'scripts/checkout_sources.py'
+      - 'scripts/prepare_component.py'
+      - '.github/workflows/ringee-runtime-image.yml'
+  pull_request:
+    paths:
+      - 'deploy/ringee/Dockerfile'
+      - 'deploy/ringee/Dockerfile.dockerignore'
+      - 'config/upstream-lock.json'
+      - 'config/component-patches.json'
+      - 'patches/ringee-app/**'
+      - 'scripts/checkout_sources.py'
+      - 'scripts/prepare_component.py'
+      - '.github/workflows/ringee-runtime-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DOCKER_BUILDKIT: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Recreate the pinned and patched application
+        run: |
+          python3 scripts/checkout_sources.py
+          python3 scripts/check_sources.py
+          python3 scripts/prepare_component.py ringee-app
+      - name: Build the runtime image
+        run: >-
+          docker build --progress=plain --target runtime
+          -f deploy/ringee/Dockerfile
+          -t ringee-runtime-ci
+          workspaces/ringee-app
+      - name: Check runtime entrypoints without starting the services
+        run: |
+          docker run --rm --entrypoint sh ringee-runtime-ci -ec '
+            test "$(id -u)" = 1000
+            test -r apps/backend/dist/apps/backend/src/main.js
+            test -r apps/orchestrator/dist/apps/orchestrator/src/main.js
+            test -r packages/database/node_modules/prisma/build/index.js
+          '
+      - name: Exercise compiled authentication factory inside the production image
+        run: >-
+          docker run --rm --network none
+          --mount type=bind,source="$GITHUB_WORKSPACE/workspaces/ringee-app/scripts/auth-runtime.test.cjs",target=/app/scripts/auth-runtime.test.cjs,readonly
+          --entrypoint node ringee-runtime-ci
+          --test /app/scripts/auth-runtime.test.cjs

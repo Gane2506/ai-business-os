@@ -1,0 +1,189 @@
+name: business-os-ringee
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+x-app-environment: &app-environment
+  NODE_ENV: production
+  PORT: "3000"
+  DATABASE_URL: postgresql://ringee:${POSTGRES_PASSWORD:?Set a URL-safe database password}@postgres:5432/ringee?schema=public
+  REDIS_URL: redis://redis:6379
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  TEMPORAL_ADDRESS: temporal:7233
+  TEMPORAL_NAMESPACE: default
+  TEMPORAL_TASK_QUEUE: ringee
+  BACKEND_URL: https://calls-api.connectxmedia.com
+  FRONTEND_URL: https://calls.connectxmedia.com
+  STORAGE_PROVIDER: local
+  UPLOAD_DIRECTORY: /app/uploads
+x-runtime: &runtime
+  image: business-os/ringee-runtime:${RINGEE_IMAGE_TAG:-foundation-20261011}
+  platform: linux/amd64
+  init: true
+  restart: unless-stopped
+  env_file:
+    - ${RINGEE_RUNTIME_ENV:-./runtime.env}
+  environment: *app-environment
+  volumes:
+    - uploads:/app/uploads
+  networks: [private]
+  logging: *logging
+  stop_grace_period: 60s
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+
+services:
+  postgres:
+    image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+    platform: linux/amd64
+    environment:
+      POSTGRES_USER: ringee
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a URL-safe database password}
+      POSTGRES_DB: ringee
+      POSTGRES_INITDB_ARGS: --encoding=UTF-8 --locale=C
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    networks: [private]
+    restart: unless-stopped
+    mem_limit: 2g
+    logging: *logging
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U ringee -d ringee']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+  redis:
+    image: redis:7.4-bookworm@sha256:4fa24486b8bcca8eec45ee0eb166edc674795e53a2b53d1a9ef263eecebaac85
+    platform: linux/amd64
+    command: [redis-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory, 192mb, --maxmemory-policy, noeviction]
+    volumes: [redis-data:/data]
+    networks: [private]
+    restart: unless-stopped
+    mem_limit: 384m
+    logging: *logging
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  temporal:
+    image: temporalio/auto-setup:1.25@sha256:b1edc1e20002d958c8182f2ae08dee877a125083683a627a44917683419ba6a8
+    platform: linux/amd64
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: ringee
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:?Set a URL-safe database password}
+      DEFAULT_NAMESPACE: default
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [private]
+    restart: unless-stopped
+    mem_limit: 2g
+    logging: *logging
+    healthcheck:
+      test: [CMD, temporal, operator, cluster, health, --address, "127.0.0.1:7233"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+  migrate:
+    image: business-os/ringee-runtime:${RINGEE_IMAGE_TAG:-foundation-20261011}
+    platform: linux/amd64
+    command: [node, packages/database/node_modules/prisma/build/index.js, migrate, deploy, --schema, packages/database/prisma/schema.prisma]
+    environment:
+      DATABASE_URL: postgresql://ringee:${POSTGRES_PASSWORD:?Set a URL-safe database password}@postgres:5432/ringee?schema=public
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [private]
+    restart: "no"
+    logging: *logging
+  backend:
+    <<: *runtime
+    build:
+      context: ../../workspaces/ringee-app
+      dockerfile: ../../deploy/ringee/Dockerfile
+      target: runtime
+    mem_limit: 2g
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      temporal: {condition: service_healthy}
+    networks:
+      private:
+      web:
+        aliases: [business-os-ringee-api]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+  worker:
+    <<: *runtime
+    hostname: business-os-ringee-worker
+    command: [node, apps/orchestrator/dist/apps/orchestrator/src/main.js]
+    mem_limit: 2g
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      temporal: {condition: service_healthy}
+    volumes:
+      - uploads:/app/uploads
+      - ./health-worker.cjs:/app/health-worker.cjs:ro
+    healthcheck:
+      test: [CMD, node, /app/health-worker.cjs]
+      interval: 30s
+      timeout: 10s
+      retries: 4
+      start_period: 90s
+  frontend:
+    image: business-os/ringee-frontend:${RINGEE_IMAGE_TAG:-foundation-20261011}
+    platform: linux/amd64
+    build:
+      context: ../../workspaces/ringee-app
+      dockerfile: ../../deploy/ringee/Dockerfile
+      target: frontend
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?Set the Clerk public build key}
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:?Set the Stripe public build key}
+    env_file:
+      - ${RINGEE_FRONTEND_ENV:-./frontend.env}
+    environment:
+      API_INTERNAL_URL: http://backend:3000/api
+      NODE_ENV: production
+      PORT: "4200"
+      HOSTNAME: 0.0.0.0
+    init: true
+    restart: unless-stopped
+    mem_limit: 1g
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    depends_on:
+      backend: {condition: service_healthy}
+    networks:
+      private:
+      web:
+        aliases: [business-os-ringee-web]
+    logging: *logging
+    healthcheck:
+      # Static route bypasses Clerk; this is HTTP liveness, not auth readiness.
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:4200/robots.txt').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+networks:
+  private:
+    # Dedicated bridge, but outbound access is required for hosted providers.
+  web:
+    external: true
+    name: web
+volumes:
+  postgres-data:
+  redis-data:
+  uploads:
