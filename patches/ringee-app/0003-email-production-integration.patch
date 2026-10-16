@@ -900,7 +900,6 @@ index 16fae7f..94d1a15 100644
 -  return UUID_RE.test(value);
  }
 diff --git a/apps/backend/src/api/routes/routes.module.ts b/apps/backend/src/api/routes/routes.module.ts
-index c5b4885..de5e60d 100644
 --- a/apps/backend/src/api/routes/routes.module.ts
 +++ b/apps/backend/src/api/routes/routes.module.ts
 @@ -1,4 +1,5 @@
@@ -909,7 +908,17 @@ index c5b4885..de5e60d 100644
  import { InboundRouteController } from "./inbound-route.controller";
  import { RingGroupController } from "./ring-group.controller";
  import { InboundCallController } from "./inbound-call.controller";
-@@ -92,6 +93,7 @@ import { PersonalApiKeyGuard } from "../guards/personal-api-key.guard";
+@@ -42,6 +43,9 @@ import { OutboundAnalyticsController } from "./outbound-analytics.controller";
+ import { TagController, ContactTagController } from "./tag.controller";
+ import { CallScriptController } from "./call-script.controller";
+ import { OnboardingController } from "./onboarding.controller";
++import { PrincipalController } from "./principal.controller";
++import { OrganizationController } from "./organization.controller";
++import { PhoneVerificationController } from "./phone-verification.controller";
+ import { MeetingController } from "./meeting.controller";
+ import { CalendarController } from "./calendar.controller";
+ import { TriggerLoopModule } from "../../triggerloop/triggerloop.module";
+@@ -92,6 +96,7 @@ import { PersonalApiKeyGuard } from "../guards/personal-api-key.guard";
  
  @Module({
    controllers: [
@@ -917,6 +926,17 @@ index c5b4885..de5e60d 100644
      ChatAuthController,
      WhatsappController,
      ClerkController,
+@@ -120,6 +125,9 @@ import { PersonalApiKeyGuard } from "../guards/personal-api-key.guard";
+     ContactTagController,
+     CallScriptController,
+     OnboardingController,
++    PrincipalController,
++    OrganizationController,
++    PhoneVerificationController,
+     MeetingController,
+     CalendarController,
+     CrmController,
+
 diff --git a/apps/backend/src/api/routes/user-access-enforcement.service.spec.ts b/apps/backend/src/api/routes/user-access-enforcement.service.spec.ts
 new file mode 100644
 index 0000000..fa62135
@@ -2863,7 +2883,6 @@ index 437c062..c74da4d 100644
  }
  
 diff --git a/packages/configuration/src/api.configuration.ts b/packages/configuration/src/api.configuration.ts
-index 4bcdd14..a30fec7 100644
 --- a/packages/configuration/src/api.configuration.ts
 +++ b/packages/configuration/src/api.configuration.ts
 @@ -16,7 +16,8 @@ const apiConfiguration = {
@@ -2909,7 +2928,17 @@ index 4bcdd14..a30fec7 100644
    BACKEND_URL: process.env.BACKEND_URL!,
    CLERK_WEBHOOK_SIGNING_SECRET: process.env.CLERK_WEBHOOK_SIGNING_SECRET!,
    CLERK_PUBLISHABLE_KEY: process.env.CLERK_PUBLISHABLE_KEY!,
-@@ -204,11 +227,14 @@ const apiConfiguration = {
+@@ -96,6 +119,9 @@ const apiConfiguration = {
+   // Caller ID presented by Ringee-owned outbound flows when no workspace number
+   // applies (optional).
+   RINGEE_PUBLIC_CALLER_ID: process.env.RINGEE_PUBLIC_CALLER_ID,
++  // SMS sender for phone verification codes (optional; the feature reports a
++  // clear error when unset).
++  PHONE_VERIFICATION_SMS_FROM: process.env.PHONE_VERIFICATION_SMS_FROM,
+   // Destination for internal free-trial / credit request notifications.
+   RINGEE_TEAM_EMAIL:
+     process.env.RINGEE_TEAM_EMAIL || process.env.EMAIL_FROM_ADDRESS,
+@@ -204,11 +230,14 @@ const apiConfiguration = {
    APOLLO_API_BASE_URL:
      process.env.APOLLO_API_BASE_URL || "https://api.apollo.io",
    // ── Ringee AI ──
@@ -2928,7 +2957,7 @@ index 4bcdd14..a30fec7 100644
    OPENAI_DEFAULT_MODEL: process.env.OPENAI_DEFAULT_MODEL || "gpt-5.4-mini",
    OPENAI_SUMMARY_MODEL: process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini",
    ANTHROPIC_DEFAULT_MODEL:
-@@ -314,8 +340,31 @@ if (!apiConfiguration.FRONTEND_URL) {
+@@ -314,8 +343,31 @@ if (!apiConfiguration.FRONTEND_URL) {
    errors.push("FRONTEND_URL is not defined");
  }
  
@@ -2962,7 +2991,7 @@ index 4bcdd14..a30fec7 100644
  }
  
  if (
-@@ -404,8 +453,8 @@ if (!apiConfiguration.REDIS_URL) {
+@@ -404,8 +456,8 @@ if (!apiConfiguration.REDIS_URL) {
    errors.push("REDIS_URL is not defined");
  }
  
@@ -2973,6 +3002,7 @@ index 4bcdd14..a30fec7 100644
  }
  
  if (!apiConfiguration.EMAIL_FROM_NAME) {
+
 diff --git a/packages/database/AGENTS.md b/packages/database/AGENTS.md
 index 5dfe91f..170606f 100644
 --- a/packages/database/AGENTS.md
@@ -8989,7 +9019,6 @@ index eb61501..7fcf340 100644
 +export * from "./email.repository";
 +export * from "./auth-session.repository";
 diff --git a/packages/database/src/database/repositories/organization.repository.ts b/packages/database/src/database/repositories/organization.repository.ts
-index 3ee8ece..2e857d3 100644
 --- a/packages/database/src/database/repositories/organization.repository.ts
 +++ b/packages/database/src/database/repositories/organization.repository.ts
 @@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
@@ -9000,7 +9029,7 @@ index 3ee8ece..2e857d3 100644
    Organization,
    OrganizationMembership,
    User,
-@@ -284,4 +285,160 @@ export class OrganizationRepository {
+@@ -284,4 +285,170 @@ export class OrganizationRepository {
        include: { members: true },
      });
    }
@@ -9072,6 +9101,16 @@ index 3ee8ece..2e857d3 100644
 +  async findInvitationById(id: string): Promise<AuthInvitation | null> {
 +    if (OrganizationRepository.missingId(id)) return null;
 +    return this.prisma.authInvitation.findUnique({ where: { id } });
++  }
++
++  /** Pending, unexpired invitations for an email across organizations. */
++  async findPendingInvitationsByEmail(
++    email: string,
++  ): Promise<AuthInvitation[]> {
++    return this.prisma.authInvitation.findMany({
++      where: { email, status: "pending", expiresAt: { gt: new Date() } },
++      orderBy: { createdAt: "desc" },
++    });
 +  }
 +
 +  /** The latest pending, unexpired invitation for an email in an org. */
@@ -9161,6 +9200,7 @@ index 3ee8ece..2e857d3 100644
 +    });
 +  }
  }
+
 diff --git a/packages/database/src/database/repositories/user.repository.ts b/packages/database/src/database/repositories/user.repository.ts
 index 85cc638..c69907d 100644
 --- a/packages/database/src/database/repositories/user.repository.ts
@@ -13446,7 +13486,7 @@ index 9dc76b6..cd6a889 100644
  export * from "./services.module";
  export * from "./chat.auth.service";
  export * from "./call.service";
-@@ -59,3 +60,8 @@ export * from "./voice-agents";
+@@ -59,3 +60,9 @@ export * from "./voice-agents";
  
  export * from "./external-carrier/external-carrier.service";
  export * from "./inbound-routing";
@@ -13455,6 +13495,7 @@ index 9dc76b6..cd6a889 100644
 +export * from "./auth-principal.service";
 +export * from "./auth-identity.service";
 +export * from "./realtime-ticket.service";
++export * from "./phone-verification.service";
 diff --git a/packages/services/src/services/number.purchased.service.ts b/packages/services/src/services/number.purchased.service.ts
 index e18da01..074e750 100644
 --- a/packages/services/src/services/number.purchased.service.ts
@@ -13971,10 +14012,9 @@ index 0000000..bf8589e
 +  });
 +});
 diff --git a/packages/services/src/services/organization.service.ts b/packages/services/src/services/organization.service.ts
-index 3d9decc..6682e66 100644
 --- a/packages/services/src/services/organization.service.ts
 +++ b/packages/services/src/services/organization.service.ts
-@@ -1,5 +1,16 @@
+@@ -1,5 +1,17 @@
 -import { ForbiddenException, Injectable } from "@nestjs/common";
 -import { Organization, OrganizationRepository } from "@ringee/database";
 +import {
@@ -13986,6 +14026,7 @@ index 3d9decc..6682e66 100644
 +} from "@nestjs/common";
 +import {
 +  AuthInvitation,
++  AuthSessionRepository,
 +  Organization,
 +  OrganizationRepository,
 +  UserRepository,
@@ -13993,7 +14034,7 @@ index 3d9decc..6682e66 100644
  import { ClerkOrganizationRepository, RedisService } from "@ringee/platform";
  
  /** One switchable workspace the user can scope their MCP session to. */
-@@ -11,10 +22,22 @@ export interface UserWorkspaceMembership {
+@@ -11,11 +23,24 @@ export interface UserWorkspaceMembership {
    role: string;
  }
  
@@ -14014,9 +14055,11 @@ index 3d9decc..6682e66 100644
      private readonly organizationRepository: OrganizationRepository,
 +    private readonly userRepository: UserRepository,
      private readonly redisService: RedisService,
++    private readonly authSessionRepository: AuthSessionRepository,
    ) {}
  
-@@ -95,6 +118,188 @@ export class OrganizationService {
+   /**
+@@ -95,7 +120,262 @@ export class OrganizationService {
      return this.organizationRepository.updateCustomerId(id, customerId);
    }
  
@@ -14203,8 +14246,83 @@ index 3d9decc..6682e66 100644
 +  }
 +
    /** Organizations the user can switch into (resolved memberships only). */
++  /**
++   * Members of an organization for the member-management UI. Any member may
++   * list; the caller must be a member (verified here, not just trusted).
++   */
++  async listMembers(organizationId: string, actorId: string) {
++    const isMember = await this.organizationRepository.isMember(
++      actorId,
++      organizationId,
++    );
++    if (!isMember) {
++      throw new ForbiddenException(
++        "You are not a member of that organization",
++      );
++    }
++    const rows = await this.organizationRepository.listMembersWithUsers(
++      organizationId,
++    );
++    return rows.map((m) => ({
++      id: m.user?.id ?? m.userId ?? m.id,
++      name: m.user?.authName ?? null,
++      email: m.user?.emails?.[0]?.email ?? null,
++      imageUrl: m.user?.imageUrl ?? null,
++      role: m.role,
++      isCurrentUser: m.user?.id === actorId,
++    }));
++  }
++
++  /**
++   * Pending invitations for the actor's own verified mailbox, across
++   * organizations. Used by the invitation-acceptance UI.
++   */
++  async listMyPendingInvitations(userId: string) {
++    const user = await this.userRepository.findById(userId);
++    const email = user?.authEmail?.trim().toLowerCase() ?? null;
++    if (!email || !user?.authEmailVerified) return [];
++    const invitations =
++      await this.organizationRepository.findPendingInvitationsByEmail(email);
++    return invitations.map((inv) => ({
++      id: inv.id,
++      organizationId: inv.organizationId,
++      email: inv.email,
++      role: inv.role,
++      expiresAt: inv.expiresAt.toISOString(),
++    }));
++  }
++
++  /**
++   * Switch the web session's active organization (`null` = personal scope).
++   * Membership is verified here; the principal resolver re-validates on
++   * every request, so a revoked member can never act on a stale selection.
++   */
++  async setActiveOrganizationForSession(
++    userId: string,
++    sessionId: string,
++    organizationId: string | null,
++  ): Promise<void> {
++    if (organizationId !== null) {
++      const isMember = await this.organizationRepository.isMember(
++        userId,
++        organizationId,
++      );
++      if (!isMember) {
++        throw new ForbiddenException(
++          "You are not a member of that organization",
++        );
++      }
++    }
++    await this.authSessionRepository.setActiveOrganizationId(
++      sessionId,
++      organizationId,
++    );
++  }
++
    async listMembershipsForUser(
      userId: string,
+   ): Promise<UserWorkspaceMembership[]> {
+
 diff --git a/packages/services/src/services/reminders/email-reminder.channel.ts b/packages/services/src/services/reminders/email-reminder.channel.ts
 index 664c0ae..d64ff13 100644
 --- a/packages/services/src/services/reminders/email-reminder.channel.ts
@@ -14312,21 +14430,21 @@ index 8a9726e..72f8cc1 100644
  
    private escapeHtml(value: string): string {
 diff --git a/packages/services/src/services/services.module.ts b/packages/services/src/services/services.module.ts
-index 5a50ace..8949c6a 100644
 --- a/packages/services/src/services/services.module.ts
 +++ b/packages/services/src/services/services.module.ts
-@@ -1,4 +1,10 @@
+@@ -1,4 +1,11 @@
 +import { EmailService } from "./email.service";
  import { ExternalCarrierService } from "./external-carrier/external-carrier.service";
 +import { EmailFeedbackService } from "./email-feedback.service";
 +import { AuthPrincipalService } from "./auth-principal.service";
 +import { AuthIdentityService } from "./auth-identity.service";
 +import { RealtimeTicketService } from "./realtime-ticket.service";
++import { PhoneVerificationService } from "./phone-verification.service";
 +import { MauticFeedbackClient, SnsFeedbackVerifier } from "@ringee/platform";
  import {
    AiReceptionistDestinationHandler,
    DeskPhoneDestinationHandler,
-@@ -214,6 +220,10 @@ import {
+@@ -214,6 +221,11 @@ import {
  } from "./security";
  
  const servicesProviders = [
@@ -14334,10 +14452,11 @@ index 5a50ace..8949c6a 100644
 +  AuthPrincipalService,
 +  AuthIdentityService,
 +  RealtimeTicketService,
++  PhoneVerificationService,
    UserService,
    ChatAuthService,
    CallTranscriptionService,
-@@ -448,6 +458,9 @@ const reminderChannelsProvider: Provider = {
+@@ -448,6 +460,9 @@ const reminderChannelsProvider: Provider = {
  };
  
  const allProviders: Provider[] = [
@@ -14347,6 +14466,7 @@ index 5a50ace..8949c6a 100644
    ...servicesProviders,
    reminderChannelsProvider,
    pipelineDefinitionsProvider,
+
 diff --git a/packages/services/src/services/realtime-ticket.service.ts b/packages/services/src/services/realtime-ticket.service.ts
 new file mode 100644
 index 0000000..8113714
@@ -16031,10 +16151,10 @@ index b88fe67..26dfcdd 100644
 +export * from "./better-auth.configuration";
 diff --git a/packages/database/src/database/repositories/auth-session.repository.ts b/packages/database/src/database/repositories/auth-session.repository.ts
 new file mode 100644
-index 0000000..9b7f37a
+index 0000000..0000000
 --- /dev/null
 +++ b/packages/database/src/database/repositories/auth-session.repository.ts
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,92 @@
 +import { Injectable } from "@nestjs/common";
 +import { Prisma } from "@prisma/client";
 +import { PrismaService } from "../prisma.service";
@@ -16054,6 +16174,21 @@ index 0000000..9b7f37a
 +      where: { userId },
 +    });
 +    return count;
++  }
++
++  /**
++   * Switch the session's active organization (workspace switcher). `null`
++   * selects the personal scope. Callers must verify the membership first;
++   * the principal resolver re-validates it on every request.
++   */
++  async setActiveOrganizationId(
++    sessionId: string,
++    organizationId: string | null,
++  ): Promise<void> {
++    await this.prisma.authSession.update({
++      where: { id: sessionId },
++      data: { activeOrganizationId: organizationId },
++    });
 +  }
 +
 +  async findPrincipalSnapshot(sessionId: string, userId: string, now: Date) {
@@ -16112,6 +16247,7 @@ index 0000000..9b7f37a
 +    );
 +  }
 +}
+
 diff --git a/packages/frontend-shared/package.json b/packages/frontend-shared/package.json
 index 9a2fbb6..4684ea0 100644
 --- a/packages/frontend-shared/package.json
@@ -17230,9 +17366,17 @@ index 0000000..b84820d
 +  return readAuthPrincipal(createCookieApiServer(cookieStore.toString()));
 +}
 diff --git a/apps/frontend/src/i18n/locales/en/auth.json b/apps/frontend/src/i18n/locales/en/auth.json
-index b21dae0..8fd7832 100644
 --- a/apps/frontend/src/i18n/locales/en/auth.json
 +++ b/apps/frontend/src/i18n/locales/en/auth.json
+@@ -35,7 +35,7 @@
+     "phonePlaceholder": "Enter your phone number",
+     "smsHint": "We'll send a 6-digit code by SMS.",
+     "sendCode": "Send verification code",
+-    "securityNote": "Your number is protected by Clerk and is never shared publicly.",
++    "securityNote": "Your number is protected and is never shared publicly.",
+     "invalidPhone": "Enter a valid phone number, including the country code.",
+     "sendCodeError": "We couldn't send the verification code. Please try again.",
+     "codeTitle": "Check your messages",
 @@ -73,7 +73,10 @@
      "invalidCredentials": "Invalid email or password.",
      "accountLocked": "Your account has been locked. Contact support.",
@@ -17245,8 +17389,19 @@ index b21dae0..8fd7832 100644
    },
    "cliAuthorize": {
      "metaTitle": "Authorize Ringee CLI",
+@@ -125,5 +128,10 @@
+     "loadError": "We couldn't load this login request. Refresh to try again.",
+     "actionError": "Something went wrong. Try again.",
+     "tryAnotherCode": "Enter a different code"
++  },
++  "closedSignup": {
++    "title": "Accounts are provisioned by your administrator",
++    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
++    "signInLink": "Back to sign in"
+   }
+ }
+
 diff --git a/apps/frontend/src/i18n/locales/es/auth.json b/apps/frontend/src/i18n/locales/es/auth.json
-index 41b059f..768fa11 100644
 --- a/apps/frontend/src/i18n/locales/es/auth.json
 +++ b/apps/frontend/src/i18n/locales/es/auth.json
 @@ -73,7 +73,10 @@
@@ -17261,6 +17416,18 @@ index 41b059f..768fa11 100644
    },
    "cliAuthorize": {
      "metaTitle": "Autorizar la CLI de Ringee",
+@@ -125,5 +128,10 @@
+     "loadError": "No pudimos cargar esta solicitud de inicio de sesión. Recarga la página para intentarlo de nuevo.",
+     "actionError": "Algo salió mal. Inténtalo de nuevo.",
+     "tryAnotherCode": "Introducir otro código"
++  },
++  "closedSignup": {
++    "title": "Accounts are provisioned by your administrator",
++    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
++    "signInLink": "Back to sign in"
+   }
+ }
+
 diff --git a/packages/frontend-shared/src/auth/__tests__/auth-client.test.ts b/packages/frontend-shared/src/auth/__tests__/auth-client.test.ts
 new file mode 100644
 index 0000000..3562825
@@ -17630,35 +17797,83 @@ index 0000000..7ca79e4
 +  return requested;
 +}
 diff --git a/packages/frontend-shared/src/hooks/use.api.ts b/packages/frontend-shared/src/hooks/use.api.ts
-index b9aebb6..4a8e110 100644
 --- a/packages/frontend-shared/src/hooks/use.api.ts
 +++ b/packages/frontend-shared/src/hooks/use.api.ts
-@@ -24,3 +24,8 @@ export function useApi() {
-     });
-   }, [getToken]);
- }
-+
-+/** Dormant cookie transport for the Better Auth consumer migration. */
-+export function useCookieApi() {
+@@ -1,26 +1,17 @@
+ "use client";
+ 
+ import { useMemo } from "react";
+-import { useAuth } from "@clerk/nextjs";
+ import { ApiClient } from "../lib/api";
+ 
++/**
++ * Cookie-authenticated API client. The Better Auth session cookie goes along
++ * via `credentials: "include"`; no bearer token is fetched or attached.
++ */
+ export function useApi() {
+-  const { getToken } = useAuth();
 +  return useMemo(() => new ApiClient(), []);
 +}
+ 
+-  return useMemo(() => {
+-    return new ApiClient({
+-      getAuthToken: async () => {
+-        return await getToken();
+-      },
+-      mockDelayMs: 10,
+-      mocks: {
+-        "/credits/balance": async () => {
+-          return {
+-            balance: 146,
+-            freeCallTrial: false,
+-          };
+-        },
+-      },
+-    });
+-  }, [getToken]);
++/** Backwards-compatible alias; prefer `useApi`. */
++export function useCookieApi() {
++  return useApi();
+ }
+
 diff --git a/packages/frontend-shared/src/lib/api.server.ts b/packages/frontend-shared/src/lib/api.server.ts
-index 3f9553c..0a04388 100644
 --- a/packages/frontend-shared/src/lib/api.server.ts
 +++ b/packages/frontend-shared/src/lib/api.server.ts
-@@ -20,3 +20,12 @@ export class ApiServer extends ApiClient {
- }
+@@ -1,22 +1,14 @@
+-import { auth } from "@clerk/nextjs/server";
+ import { ApiClient } from "./api";
+-import { apiMocks } from "./api.mocks";
  
- export const apiServer = new ApiServer();
-+
-+/** Create once per incoming request; never store a user's cookies in apiServer. */
+-export class ApiServer extends ApiClient {
+-  constructor() {
+-    super({
+-      getAuthToken: async () => {
+-        try {
+-          const { getToken } = await auth();
+-          return await getToken();
+-        } catch (err) {
+-          return null;
+-        }
+-      },
+-      mockDelayMs: 0,
+-      mocks: apiMocks,
+-    });
+-  }
++/**
++ * Request-scoped API client for server components and route handlers.
++ * Forwards the incoming request's cookies (the Better Auth session is an
++ * HttpOnly cookie); never store a user's cookies in a module singleton.
++ */
 +export function createCookieApiServer(cookieHeader: string, baseURL?: string) {
 +  return new ApiClient({
 +    baseURL,
 +    headers: { Cookie: cookieHeader },
 +    cache: "no-store",
 +  });
-+}
+ }
+-
+-export const apiServer = new ApiServer();
+
 diff --git a/packages/frontend-shared/src/lib/api.ts b/packages/frontend-shared/src/lib/api.ts
 index 0e05358..7e247b9 100644
 --- a/packages/frontend-shared/src/lib/api.ts
@@ -17871,11 +18086,14 @@ index 99a3bb7..7d57f88 100644
   * The WebSocket lives on the API host but OUTSIDE the `/api` prefix, so the
   * suffix is stripped from the configured base URL before appending the path.
 diff --git a/packages/frontend-shared/src/realtime/use-user-events.ts b/packages/frontend-shared/src/realtime/use-user-events.ts
-index 51467ce..7f24660 100644
 --- a/packages/frontend-shared/src/realtime/use-user-events.ts
 +++ b/packages/frontend-shared/src/realtime/use-user-events.ts
-@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
- import { useAuth } from "@clerk/nextjs";
+@@ -1,9 +1,10 @@
+ "use client";
+ 
+ import { useEffect, useRef, useState } from "react";
+-import { useAuth } from "@clerk/nextjs";
++import { useSession } from "../auth/session-provider";
  import { RealtimeClientKind, RealtimeServerEvent } from "./contracts";
  import {
 +  fetchRealtimeTicket,
@@ -17891,7 +18109,7 @@ index 51467ce..7f24660 100644
  }
  
  /**
-@@ -21,30 +24,33 @@ export interface UseUserEventsOptions {
+@@ -21,30 +24,32 @@ export interface UseUserEventsOptions {
   * component that mounts it. Mount it ONCE per app shell — a second mount opens
   * a second socket and shows up as a duplicate device in the backoffice.
   *
@@ -17899,9 +18117,8 @@ index 51467ce..7f24660 100644
 - * survives navigation, org switches and token refreshes, and is torn down only
 - * on sign-out or unmount.
 + * Authentication is a one-use ticket fetched over the authenticated HTTP API
-+ * before every (re)connect; the socket is torn down on sign-out or unmount.
-+ * The signed-in gate below is the pre-cutover auth layer — the frontend auth
-+ * migration owns replacing it.
++ * (Better Auth session cookie) before every (re)connect; the socket is torn
++ * down on sign-out or unmount.
   */
  export function useUserEvents({
    onEvent,
@@ -17910,7 +18127,7 @@ index 51467ce..7f24660 100644
 +  apiUrl,
  }: UseUserEventsOptions): RealtimeConnectionStatus {
 -  const { isLoaded, isSignedIn, userId, getToken } = useAuth();
-+  const { isLoaded, isSignedIn, userId } = useAuth();
++  const { isLoaded, isSignedIn, userId } = useSession();
    const [status, setStatus] = useState<RealtimeConnectionStatus>("idle");
  
 -  // The handler and the token getter are read through refs so that a new
@@ -17934,6 +18151,7 @@ index 51467ce..7f24660 100644
        client,
        onEvent: (event) => onEventRef.current(event),
        onStatusChange: setStatus,
+
 diff --git a/packages/frontend-shared/src/lib/auth.contracts.ts b/packages/frontend-shared/src/lib/auth.contracts.ts
 new file mode 100644
 index 0000000..9fb0b50
@@ -17943,4 +18161,3779 @@ index 0000000..9fb0b50
 +export { readAuthPrincipal, signInDestination } from "../auth/contracts";
 +export type { AuthPrincipal } from "../auth/contracts";
 
+diff --git a/apps/backend/src/api/routes/organization.controller.ts b/apps/backend/src/api/routes/organization.controller.ts
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/apps/backend/src/api/routes/organization.controller.ts
+@@ -0,0 +1,73 @@
++import { Body, Controller, Get, Param, Post } from "@nestjs/common";
++import {
++  CurrentUser,
++  type RingeeAuthPrincipal,
++} from "@ringee/platform";
++import { OrganizationService } from "@ringee/services";
++
++/**
++ * Organization workspace endpoints for the browser UI (switcher, member
++ * management, invitation acceptance). Better Auth has no organization
++ * plugin here; organizations are Ringee's own records and the session's
++ * active organization is the `activeOrganizationId` column on AuthSession.
++ *
++ * Every route re-validates membership: the principal resolver also
++ * re-validates on each request, so a revoked member can never act on a
++ * stale selection.
++ */
++@Controller()
++export class OrganizationController {
++  constructor(private readonly organizations: OrganizationService) {}
++
++  /** The organizations the caller belongs to, with their role in each. */
++  @Get("organizations")
++  listMine(@CurrentUser() principal: RingeeAuthPrincipal) {
++    return this.organizations.listMembershipsForUser(principal.id);
++  }
++
++  /**
++   * Switch the session's active organization. `null` selects the personal
++   * scope. The organization must be one of the caller's memberships.
++   */
++  @Post("organizations/active")
++  async setActive(
++    @CurrentUser() principal: RingeeAuthPrincipal,
++    @Body() body: { organizationId?: string | null },
++  ): Promise<{ ok: true }> {
++    await this.organizations.setActiveOrganizationForSession(
++      principal.id,
++      principal.sessionId,
++      body?.organizationId ?? null,
++    );
++    return { ok: true };
++  }
++
++  /** Members of an organization the caller belongs to. */
++  @Get("organizations/:id/members")
++  listMembers(
++    @CurrentUser() principal: RingeeAuthPrincipal,
++    @Param("id") id: string,
++  ) {
++    return this.organizations.listMembers(id, principal.id);
++  }
++
++  /** Pending invitations for the caller's own verified mailbox. */
++  @Get("invitations/mine")
++  listMyInvitations(@CurrentUser() principal: RingeeAuthPrincipal) {
++    return this.organizations.listMyPendingInvitations(principal.id);
++  }
++
++  /**
++   * Accept an invitation. The service requires the accepting mailbox to be
++   * the invited, verified one; a pending invitation never grants membership
++   * on an unverified claim.
++   */
++  @Post("invitations/:id/accept")
++  async acceptInvitation(
++    @CurrentUser() principal: RingeeAuthPrincipal,
++    @Param("id") id: string,
++  ): Promise<{ ok: true }> {
++    await this.organizations.acceptInvitation(id, principal.id);
++    return { ok: true };
++  }
++}
 
+diff --git a/apps/backend/src/api/routes/phone-verification.controller.ts b/apps/backend/src/api/routes/phone-verification.controller.ts
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/apps/backend/src/api/routes/phone-verification.controller.ts
+@@ -0,0 +1,38 @@
++import { Body, Controller, Post } from "@nestjs/common";
++import { CurrentUser, type RingeeAuthPrincipal } from "@ringee/platform";
++import { PhoneVerificationService } from "@ringee/services";
++
++/**
++ * Phone number verification via SMS one-time codes (replaces Clerk's
++ * client-side phone verification). Codes are hashed in Redis; the
++ * verification state lands on the User record.
++ */
++@Controller("phone/verification")
++export class PhoneVerificationController {
++  constructor(private readonly phones: PhoneVerificationService) {}
++
++  @Post("start")
++  async start(
++    @CurrentUser() principal: RingeeAuthPrincipal,
++    @Body() body: { phoneNumber?: string },
++  ): Promise<{ ok: true }> {
++    await this.phones.startVerification(
++      principal.id,
++      body?.phoneNumber ?? "",
++    );
++    return { ok: true };
++  }
++
++  @Post("confirm")
++  async confirm(
++    @CurrentUser() principal: RingeeAuthPrincipal,
++    @Body() body: { phoneNumber?: string; code?: string },
++  ): Promise<{ ok: true }> {
++    await this.phones.confirmVerification(
++      principal.id,
++      body?.phoneNumber ?? "",
++      body?.code ?? "",
++    );
++    return { ok: true };
++  }
++}
+
+diff --git a/apps/backend/src/api/routes/principal.controller.ts b/apps/backend/src/api/routes/principal.controller.ts
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/apps/backend/src/api/routes/principal.controller.ts
+@@ -0,0 +1,17 @@
++import { Controller, Get } from "@nestjs/common";
++import { CurrentUser, type RingeeAuthPrincipal } from "@ringee/platform";
++
++/**
++ * The browser's principal endpoint (`GET /api/auth/principal`). Returns the
++ * verified principal for the cookie session in the exact shape the
++ * frontend's `authPrincipalSchema` validates: user, active organization +
++ * role, phone access, and session expiry. The global AuthGuard already
++ * rejected missing, expired, or revoked sessions before this runs.
++ */
++@Controller("auth/principal")
++export class PrincipalController {
++  @Get()
++  getPrincipal(@CurrentUser() principal: RingeeAuthPrincipal) {
++    return principal.dto;
++  }
++}
+
+diff --git a/apps/frontend/src/app/dashboard/invitations/page.tsx b/apps/frontend/src/app/dashboard/invitations/page.tsx
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/apps/frontend/src/app/dashboard/invitations/page.tsx
+@@ -0,0 +1,107 @@
++'use client';
++
++import { useCallback, useEffect, useState } from 'react';
++import { useApi } from '@ringee/frontend-shared/hooks/use.api';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider';
++import { Button } from '@ringee/frontend-shared/components/ui/button';
++import { useTranslations } from 'next-intl';
++
++interface Invitation {
++  id: string;
++  organizationId: string;
++  email: string;
++  role: string;
++  expiresAt: string;
++}
++
++/**
++ * Pending organization invitations for the signed-in user's verified
++ * mailbox. Accepting requires the invited, verified mailbox (enforced by
++ * the backend); the membership is created transactionally.
++ */
++export default function InvitationsPage() {
++  const api = useApi();
++  const { refresh } = useSession();
++  const t = useTranslations('organizations.invitations');
++  const [invitations, setInvitations] = useState<Invitation[]>([]);
++  const [isLoaded, setIsLoaded] = useState(false);
++  const [acceptingId, setAcceptingId] = useState<string | null>(null);
++  const [error, setError] = useState<string | null>(null);
++
++  const load = useCallback(async () => {
++    try {
++      const rows = await api.get<Invitation[]>('/invitations/mine');
++      setInvitations(Array.isArray(rows) ? rows : []);
++    } catch {
++      setInvitations([]);
++    } finally {
++      setIsLoaded(true);
++    }
++  }, [api]);
++
++  useEffect(() => {
++    void load();
++  }, [load]);
++
++  const accept = async (id: string) => {
++    setAcceptingId(id);
++    setError(null);
++    try {
++      await api.post(`/invitations/${id}/accept`, {});
++      await refresh();
++      await load();
++    } catch (err) {
++      setError(t('acceptError'));
++    } finally {
++      setAcceptingId(null);
++    }
++  };
++
++  return (
++    <div className='flex w-full flex-col gap-6 p-4'>
++      <div>
++        <h1 className='text-2xl font-semibold tracking-tight'>
++          {t('title')}
++        </h1>
++        <p className='text-muted-foreground text-sm'>{t('description')}</p>
++      </div>
++
++      {!isLoaded ? (
++        <p className='text-muted-foreground text-sm'>{t('loading')}</p>
++      ) : invitations.length === 0 ? (
++        <p className='text-muted-foreground text-sm'>{t('empty')}</p>
++      ) : (
++        <ul className='max-w-xl space-y-3'>
++          {invitations.map((inv) => (
++            <li
++              key={inv.id}
++              className='border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-4'
++            >
++              <div className='min-w-0'>
++                <p className='truncate text-sm font-medium'>
++                  {t('invitedTo', { email: inv.email })}
++                </p>
++                <p className='text-muted-foreground text-xs'>
++                  {t('role', { role: inv.role })}
++                </p>
++              </div>
++              <Button
++                size='sm'
++                disabled={acceptingId !== null}
++                onClick={() => void accept(inv.id)}
++              >
++                {acceptingId === inv.id ? t('accepting') : t('accept')}
++              </Button>
++            </li>
++          ))}
++        </ul>
++      )}
++
++      {error && (
++        <p className='text-destructive text-sm' role='alert'>
++          {error}
++        </p>
++      )}
++    </div>
++  );
++}
+
+diff --git a/apps/frontend/src/components/layout/auth-provider.tsx b/apps/frontend/src/components/layout/auth-provider.tsx
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/apps/frontend/src/components/layout/auth-provider.tsx
+@@ -0,0 +1,21 @@
++'use client';
++import { AuthProvider } from '@ringee/frontend-shared/auth/session-provider';
++import React from 'react';
++
++/**
++ * Client-side auth provider, scoped to the authenticated route groups
++ * (dashboard, backoffice, auth, cli, infra). It is intentionally NOT mounted
++ * on the public marketing tree or the magic-link call-session page: keeping
++ * the session bootstrap off those pages reduces their JS payload and lets
++ * them qualify for the back/forward cache.
++ *
++ * Sessions are HttpOnly cookies; no token or provider secret touches the
++ * browser. The backend AuthGuard is the real boundary.
++ */
++export default function AppAuthProvider({
++  children
++}: {
++  children: React.ReactNode;
++}) {
++  return <AuthProvider>{children}</AuthProvider>;
++}
+
+diff --git a/packages/frontend-shared/src/auth/session-provider.tsx b/packages/frontend-shared/src/auth/session-provider.tsx
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/packages/frontend-shared/src/auth/session-provider.tsx
+@@ -0,0 +1,120 @@
++"use client";
++
++import React, {
++  createContext,
++  useCallback,
++  useContext,
++  useEffect,
++  useMemo,
++  useRef,
++  useState,
++} from "react";
++import { createRingeeAuthClient } from "./client";
++import type { AuthPrincipal } from "./contracts";
++import { ApiClient } from "../lib/api";
++
++export interface SessionMembership {
++  role: "org:admin" | "org:member";
++}
++
++export interface SessionState {
++  /** False until the first principal read settles. */
++  isLoaded: boolean;
++  isSignedIn: boolean;
++  userId: string | null;
++  user: AuthPrincipal["user"] | null;
++  orgId: string | null;
++  organization: AuthPrincipal["organization"];
++  membership: SessionMembership | null;
++  phoneAccess: { required: boolean; verified: boolean };
++  signOut: () => Promise<void>;
++  /** Switch the session's active organization (`null` = personal scope). */
++  setActiveOrganization: (organizationId: string | null) => Promise<void>;
++  refresh: () => Promise<void>;
++}
++
++const SessionContext = createContext<SessionState | null>(null);
++
++function apiBaseURL(): string {
++  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api";
++}
++
++/**
++ * Browser-only authentication provider. Sessions are HttpOnly cookies;
++ * no token, secret, or provider object ever touches JavaScript. The
++ * principal is read from `GET /api/auth/principal` (validated by the
++ * backend), and every API call sends the cookie via `credentials: include`.
++ */
++export function AuthProvider({ children }: { children: React.ReactNode }) {
++  const clientRef = useRef<ReturnType<typeof createRingeeAuthClient> | null>(
++    null,
++  );
++  if (!clientRef.current) {
++    clientRef.current = createRingeeAuthClient(apiBaseURL());
++  }
++  const [principal, setPrincipal] = useState<AuthPrincipal | null>(null);
++  const [isLoaded, setIsLoaded] = useState(false);
++
++  const refresh = useCallback(async () => {
++    try {
++      const next = await clientRef.current!.getPrincipal();
++      setPrincipal(next);
++    } catch {
++      setPrincipal(null);
++    } finally {
++      setIsLoaded(true);
++    }
++  }, []);
++
++  useEffect(() => {
++    void refresh();
++  }, [refresh]);
++
++  const signOut = useCallback(async () => {
++    await clientRef.current!.signOut();
++    setPrincipal(null);
++    setIsLoaded(true);
++  }, []);
++
++  const setActiveOrganization = useCallback(
++    async (organizationId: string | null) => {
++      const api = new ApiClient({ baseURL: apiBaseURL(), cache: "no-store" });
++      await api.post("/organizations/active", { organizationId });
++      await refresh();
++    },
++    [refresh],
++  );
++
++  const value = useMemo<SessionState>(() => {
++    const organization = principal?.organization ?? null;
++    return {
++      isLoaded,
++      isSignedIn: principal !== null,
++      userId: principal?.user.id ?? null,
++      user: principal?.user ?? null,
++      orgId: organization?.id ?? null,
++      organization,
++      membership: organization ? { role: organization.role } : null,
++      phoneAccess: principal?.phoneAccess ?? {
++        required: false,
++        verified: false,
++      },
++      signOut,
++      setActiveOrganization,
++      refresh,
++    };
++  }, [principal, isLoaded, signOut, setActiveOrganization, refresh]);
++
++  return (
++    <SessionContext.Provider value={value}>
++      {children}
++    </SessionContext.Provider>
++  );
++}
++
++/** The single session hook. Replaces Clerk's useAuth/useUser/useOrganization. */
++export function useSession(): SessionState {
++  const ctx = useContext(SessionContext);
++  if (!ctx) throw new Error("useSession must be used inside <AuthProvider>");
++  return ctx;
++}
+
+diff --git a/packages/frontend-shared/src/hooks/use-organizations.ts b/packages/frontend-shared/src/hooks/use-organizations.ts
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/packages/frontend-shared/src/hooks/use-organizations.ts
+@@ -0,0 +1,42 @@
++"use client";
++
++import { useCallback, useEffect, useState } from "react";
++import { useApi } from "./use.api";
++
++export interface OrganizationSummary {
++  id: string;
++  name: string;
++  slug: string | null;
++  imageUrl: string | null;
++  role: "org:admin" | "org:member";
++}
++
++/**
++ * The organizations the signed-in user belongs to, with their role in each.
++ * Replaces Clerk's `useOrganizationList`. Switching the active organization
++ * is done through the session (`useSession().setActiveOrganization`).
++ */
++export function useOrganizations() {
++  const api = useApi();
++  const [organizations, setOrganizations] = useState<OrganizationSummary[]>(
++    [],
++  );
++  const [isLoaded, setIsLoaded] = useState(false);
++
++  const refresh = useCallback(async () => {
++    try {
++      const list = await api.get<OrganizationSummary[]>("/organizations");
++      setOrganizations(Array.isArray(list) ? list : []);
++    } catch {
++      setOrganizations([]);
++    } finally {
++      setIsLoaded(true);
++    }
++  }, [api]);
++
++  useEffect(() => {
++    void refresh();
++  }, [refresh]);
++
++  return { organizations, isLoaded, refresh };
++}
+
+diff --git a/packages/services/src/services/phone-verification.service.ts b/packages/services/src/services/phone-verification.service.ts
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/packages/services/src/services/phone-verification.service.ts
+@@ -0,0 +1,160 @@
++import { createHash, randomInt } from "node:crypto";
++import {
++  BadRequestException,
++  HttpException,
++  HttpStatus,
++  Injectable,
++  Logger,
++  ServiceUnavailableException,
++} from "@nestjs/common";
++import { apiConfiguration } from "@ringee/configuration";
++import { UserRepository } from "@ringee/database";
++import { RedisService } from "@ringee/platform";
++
++/**
++ * Phone number verification via SMS one-time codes.
++ *
++ * Replaces Clerk's client-side phone verification. Codes are 6 digits,
++ * stored as SHA-256 hashes in Redis with a 10-minute TTL; the code value
++ * itself is never logged or persisted. Rate-limited per user to prevent
++ * SMS bombing.
++ */
++@Injectable()
++export class PhoneVerificationService {
++  private readonly logger = new Logger(PhoneVerificationService.name);
++  private static readonly CODE_TTL_MS = 10 * 60 * 1000;
++  private static readonly RATE_LIMIT_TTL_MS = 60 * 1000;
++  private static readonly MAX_ATTEMPTS = 5;
++
++  constructor(
++    private readonly redis: RedisService,
++    private readonly users: UserRepository,
++  ) {}
++
++  private static codeKey(userId: string): string {
++    return `ringee:phone-verification:v1:${userId}`;
++  }
++
++  private static rateKey(userId: string): string {
++    return `ringee:phone-verification:rate:v1:${userId}`;
++  }
++
++  private static hashCode(code: string): string {
++    return createHash("sha256").update(`phone-otp\0${code}`, "utf8").digest("hex");
++  }
++
++  /**
++   * Start verification for a phone number. Generates a code, stores its
++   * hash, and delivers it by SMS via Telnyx. Throws when rate-limited or
++   * when SMS delivery is not configured.
++   */
++  async startVerification(userId: string, phoneNumber: string): Promise<void> {
++    const normalized = phoneNumber.trim();
++    if (!/^\+[1-9]\d{7,14}$/.test(normalized)) {
++      throw new BadRequestException("Enter a valid phone number, including the country code.");
++    }
++
++    const rateKey = PhoneVerificationService.rateKey(userId);
++    if (await this.redis.get(rateKey)) {
++      throw new HttpException(
++        "Please wait a moment before requesting another code.",
++        HttpStatus.TOO_MANY_REQUESTS,
++      );
++    }
++
++    const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
++    await this.redis.set(
++      PhoneVerificationService.codeKey(userId),
++      JSON.stringify({
++        phoneNumber: normalized,
++        codeHash: PhoneVerificationService.hashCode(code),
++        attempts: 0,
++      }),
++      PhoneVerificationService.CODE_TTL_MS,
++    );
++    await this.redis.set(rateKey, "1", PhoneVerificationService.RATE_LIMIT_TTL_MS);
++
++    // The code is never logged or returned; only its hash is stored.
++    await this.sendSms(normalized, `Your Ringee verification code is ${code}.`);
++  }
++
++  /** Deliver an SMS via Telnyx. Fails closed when not configured. */
++  private async sendSms(to: string, text: string): Promise<void> {
++    const from = apiConfiguration.PHONE_VERIFICATION_SMS_FROM;
++    const apiKey = apiConfiguration.TELNYX_API_KEY;
++    if (!from || !apiKey) {
++      throw new ServiceUnavailableException(
++        "Phone verification by SMS is not configured. Contact support.",
++      );
++    }
++    const response = await fetch("https://api.telnyx.com/v2/messages", {
++      method: "POST",
++      headers: {
++        Authorization: `Bearer ${apiKey}`,
++        "Content-Type": "application/json",
++      },
++      body: JSON.stringify({ from, to, text }),
++    });
++    if (!response.ok) {
++      throw new ServiceUnavailableException(
++        "We could not send the verification code. Please try again.",
++      );
++    }
++  }
++
++  /**
++   * Confirm a verification code. On success marks the phone verified on the
++   * user record. Wrong codes increment attempts; too many invalidates the
++   * code.
++   */
++  async confirmVerification(
++    userId: string,
++    phoneNumber: string,
++    code: string,
++  ): Promise<void> {
++    const raw = await this.redis.getRaw(
++      PhoneVerificationService.codeKey(userId),
++    );
++    if (!raw) {
++      throw new BadRequestException(
++        "That code has expired. Request a new one.",
++      );
++    }
++
++    let stored: { phoneNumber: string; codeHash: string; attempts: number };
++    try {
++      stored = JSON.parse(raw);
++    } catch {
++      await this.redis.del(PhoneVerificationService.codeKey(userId));
++      throw new BadRequestException("That code has expired. Request a new one.");
++    }
++
++    if (stored.phoneNumber !== phoneNumber.trim()) {
++      throw new BadRequestException("That code was sent to a different number.");
++    }
++
++    if (stored.attempts >= PhoneVerificationService.MAX_ATTEMPTS) {
++      await this.redis.del(PhoneVerificationService.codeKey(userId));
++      throw new BadRequestException(
++        "Too many attempts. Request a new code.",
++      );
++    }
++
++    if (stored.codeHash !== PhoneVerificationService.hashCode(code.trim())) {
++      stored.attempts += 1;
++      await this.redis.set(
++        PhoneVerificationService.codeKey(userId),
++        JSON.stringify(stored),
++        PhoneVerificationService.CODE_TTL_MS,
++      );
++      throw new BadRequestException("That code is incorrect. Check it and try again.");
++    }
++
++    await this.redis.del(PhoneVerificationService.codeKey(userId));
++    await this.users.update(userId, {
++      phoneNumber: stored.phoneNumber,
++      phoneVerified: true,
++    });
++    this.logger.log(`Phone verified for user ${userId}`);
++  }
++}
+
+diff --git a/apps/frontend/src/components/layout/clerk-app-provider.tsx b/apps/frontend/src/components/layout/clerk-app-provider.tsx
+deleted file mode 100644
+index 0000000..0000000
+--- a/apps/frontend/src/components/layout/clerk-app-provider.tsx
++++ /dev/null
+@@ -1,35 +0,0 @@
+-'use client';
+-import { ClerkProvider } from '@clerk/nextjs';
+-import { ui } from '@clerk/ui';
+-import { dark } from '@clerk/ui/themes';
+-import { useTheme } from 'next-themes';
+-import React from 'react';
+-
+-/**
+- * Client-side Clerk provider, scoped to the authenticated route groups
+- * (dashboard, backoffice, auth). It is intentionally NOT mounted on the public
+- * marketing tree or the magic-link call-session page: keeping Clerk's frontend
+- * bundle and its `no-store` frontend-API request off those pages reduces their
+- * JS payload and lets them qualify for the back/forward cache.
+- *
+- * `resolvedTheme` (from next-themes, provided in the root layout) drives Clerk's
+- * dark/light appearance, matching the rest of the app.
+- */
+-export default function ClerkAppProvider({
+-  children
+-}: {
+-  children: React.ReactNode;
+-}) {
+-  const { resolvedTheme } = useTheme();
+-
+-  return (
+-    <ClerkProvider
+-      ui={ui}
+-      appearance={{
+-        theme: resolvedTheme === 'dark' ? dark : undefined
+-      }}
+-    >
+-      {children}
+-    </ClerkProvider>
+-  );
+-}
+
+diff --git a/apps/frontend/src/app/(marketing)/page.tsx b/apps/frontend/src/app/(marketing)/page.tsx
+--- a/apps/frontend/src/app/(marketing)/page.tsx
++++ b/apps/frontend/src/app/(marketing)/page.tsx
+@@ -1,4 +1,4 @@
+-import { auth } from '@clerk/nextjs/server';
++import { getAuthPrincipal } from '@/features/auth/lib/principal.server';
+ import { redirect } from 'next/navigation';
+ import type { Metadata } from 'next';
+ import { getTranslations } from 'next-intl/server';
+@@ -51,8 +51,8 @@ const FAQ_KEYS = [
+ ] as const;
+ 
+ export default async function HomePage() {
+-  const { userId } = await auth();
+-  if (userId) redirect('/dashboard/call');
++  const principal = await getAuthPrincipal();
++  if (principal) redirect('/dashboard/call');
+   const t = await getTranslations('marketing.home');
+   const price = PRICING.organization.price;
+   const faqs = FAQ_KEYS.map((key) => ({
+
+diff --git a/apps/frontend/src/app/auth/layout.tsx b/apps/frontend/src/app/auth/layout.tsx
+--- a/apps/frontend/src/app/auth/layout.tsx
++++ b/apps/frontend/src/app/auth/layout.tsx
+@@ -1,5 +1,5 @@
+ import type { ReactNode } from 'react';
+-import ClerkAppProvider from '@/components/layout/clerk-app-provider';
++import AppAuthProvider from '@/components/layout/auth-provider';
+ import { ClerkSupportChat } from '@/components/layout/support-chat';
+ 
+ // The sign-in/sign-up pages render Clerk's <SignIn>/<SignUp> widgets, so the
+@@ -7,9 +7,9 @@ import { ClerkSupportChat } from '@/components/layout/support-chat';
+ // from the root layout.
+ export default function AuthLayout({ children }: { children: ReactNode }) {
+   return (
+-    <ClerkAppProvider>
++    <AppAuthProvider>
+       {children}
+       <ClerkSupportChat />
+-    </ClerkAppProvider>
++    </AppAuthProvider>
+   );
+ }
+
+diff --git a/apps/frontend/src/app/auth/sign-up/[[...sign-up]]/page.tsx b/apps/frontend/src/app/auth/sign-up/[[...sign-up]]/page.tsx
+--- a/apps/frontend/src/app/auth/sign-up/[[...sign-up]]/page.tsx
++++ b/apps/frontend/src/app/auth/sign-up/[[...sign-up]]/page.tsx
+@@ -1,9 +1,9 @@
+-import { currentUser } from '@clerk/nextjs/server';
+ import { Metadata } from 'next';
+ import { redirect } from 'next/navigation';
+ import SignUpViewPage from '@/features/auth/components/sign-up-view';
+ import VerifyPhoneView from '@/features/auth/components/verify-phone-view';
+-import { needsPhoneVerification } from '@/features/auth/lib/phone-access.server';
++import { getAuthPrincipal } from '@/features/auth/lib/principal.server';
++import { getPhoneAccessRequirements } from '@/features/auth/lib/phone-access.server';
+ 
+ type SignUpPageProps = {
+   params: Promise<{ 'sign-up'?: string[] }>;
+@@ -105,12 +105,11 @@ export async function generateMetadata({
+ }
+ 
+ export default async function Page() {
+-  const user = await currentUser();
++  const principal = await getAuthPrincipal();
+ 
+-  if (user) {
+-    // This backend read also synchronizes the newly-created Clerk user into
+-    // Ringee's database when the user.created webhook has not arrived yet.
+-    if (await needsPhoneVerification(user.phoneNumbers)) {
++  if (principal) {
++    const requirements = await getPhoneAccessRequirements();
++    if (requirements.phoneRequired && !requirements.phoneVerified) {
+       return <VerifyPhoneView />;
+     }
+ 
+
+diff --git a/apps/frontend/src/app/auth/verify-phone/page.tsx b/apps/frontend/src/app/auth/verify-phone/page.tsx
+--- a/apps/frontend/src/app/auth/verify-phone/page.tsx
++++ b/apps/frontend/src/app/auth/verify-phone/page.tsx
+@@ -1,5 +1,5 @@
+ import type { Metadata } from 'next';
+-import { currentUser } from '@clerk/nextjs/server';
++import { getAuthPrincipal } from '@/features/auth/lib/principal.server';
+ import { redirect } from 'next/navigation';
+ 
+ export const metadata: Metadata = {
+@@ -8,9 +8,9 @@ export const metadata: Metadata = {
+ };
+ 
+ export default async function VerifyPhonePage() {
+-  const user = await currentUser();
++  const principal = await getAuthPrincipal();
+ 
+-  if (!user) {
++  if (!principal) {
+     redirect('/auth/sign-in');
+   }
+ 
+
+diff --git a/apps/frontend/src/app/backoffice/layout.tsx b/apps/frontend/src/app/backoffice/layout.tsx
+--- a/apps/frontend/src/app/backoffice/layout.tsx
++++ b/apps/frontend/src/app/backoffice/layout.tsx
+@@ -1,6 +1,6 @@
+-import { currentUser } from '@clerk/nextjs/server';
++import { getAuthPrincipal } from '@/features/auth/lib/principal.server';
+ import { redirect } from 'next/navigation';
+-import ClerkAppProvider from '@/components/layout/clerk-app-provider';
++import AppAuthProvider from '@/components/layout/auth-provider';
+ import { fetchIsSuperAdmin } from '@/features/backoffice/lib/super-admins';
+ import { BackofficeShell } from '@/features/backoffice/components/backoffice-shell';
+ import { needsPhoneVerification } from '@/features/auth/lib/phone-access.server';
+@@ -15,9 +15,9 @@ export default async function BackofficeLayout({
+ }: {
+   children: React.ReactNode;
+ }) {
+-  const user = await currentUser();
++  const principal = await getAuthPrincipal();
+ 
+-  if (user && (await needsPhoneVerification(user.phoneNumbers))) {
++  if (principal && (await needsPhoneVerification())) {
+     redirect('/auth/sign-up/continue');
+   }
+ 
+@@ -28,8 +28,8 @@ export default async function BackofficeLayout({
+   }
+ 
+   return (
+-    <ClerkAppProvider>
++    <AppAuthProvider>
+       <BackofficeShell>{children}</BackofficeShell>
+-    </ClerkAppProvider>
++    </AppAuthProvider>
+   );
+ }
+
+diff --git a/apps/frontend/src/app/cli/layout.tsx b/apps/frontend/src/app/cli/layout.tsx
+--- a/apps/frontend/src/app/cli/layout.tsx
++++ b/apps/frontend/src/app/cli/layout.tsx
+@@ -1,6 +1,6 @@
+-import { currentUser } from '@clerk/nextjs/server';
++import { getAuthPrincipal } from '@/features/auth/lib/principal.server';
+ import { redirect } from 'next/navigation';
+-import ClerkAppProvider from '@/components/layout/clerk-app-provider';
++import AppAuthProvider from '@/components/layout/auth-provider';
+ import { needsPhoneVerification } from '@/features/auth/lib/phone-access.server';
+ 
+ export const metadata = {
+@@ -16,11 +16,11 @@ export default async function CliLayout({
+ }: {
+   children: React.ReactNode;
+ }) {
+-  const user = await currentUser();
++  const principal = await getAuthPrincipal();
+ 
+-  if (user && (await needsPhoneVerification(user.phoneNumbers))) {
++  if (principal && (await needsPhoneVerification())) {
+     redirect('/auth/sign-up/continue');
+   }
+ 
+-  return <ClerkAppProvider>{children}</ClerkAppProvider>;
++  return <AppAuthProvider>{children}</AppAuthProvider>;
+ }
+
+diff --git a/apps/frontend/src/app/dashboard/layout.tsx b/apps/frontend/src/app/dashboard/layout.tsx
+--- a/apps/frontend/src/app/dashboard/layout.tsx
++++ b/apps/frontend/src/app/dashboard/layout.tsx
+@@ -1,6 +1,6 @@
+ import KBar from '@ringee/frontend-shared/components/kbar';
+ import AppMainSidebar from '@/components/layout/app.main.sidebar';
+-import ClerkAppProvider from '@/components/layout/clerk-app-provider';
++import AppAuthProvider from '@/components/layout/auth-provider';
+ import Header from '@/components/layout/header';
+ import {
+   SidebarInset,
+@@ -11,7 +11,7 @@ import { OnboardingGuideWrapper } from '@/features/onboarding/components/onboard
+ import { AccountLockdownProvider } from '@/features/security';
+ import { OfferBanner } from '@/features/offers';
+ import { cookies } from 'next/headers';
+-import { currentUser } from '@clerk/nextjs/server';
++import { getAuthPrincipal } from '@/features/auth/lib/principal.server';
+ import { redirect } from 'next/navigation';
+ import { needsPhoneVerification } from '@/features/auth/lib/phone-access.server';
+ 
+@@ -20,9 +20,9 @@ export default async function DashboardLayout({
+ }: {
+   children: React.ReactNode;
+ }) {
+-  const user = await currentUser();
++  const principal = await getAuthPrincipal();
+ 
+-  if (user && (await needsPhoneVerification(user.phoneNumbers))) {
++  if (principal && (await needsPhoneVerification())) {
+     redirect('/auth/sign-up/continue');
+   }
+ 
+@@ -32,7 +32,7 @@ export default async function DashboardLayout({
+     cookieStore.get('quick_dial_state')?.value === 'true';
+ 
+   return (
+-    <ClerkAppProvider>
++    <AppAuthProvider>
+       {/* Single realtime socket for this device: hangs up and locks the UI the
+           instant the backoffice bans the account. */}
+       <AccountLockdownProvider>
+@@ -55,6 +55,6 @@ export default async function DashboardLayout({
+           </SidebarProvider>
+         </KBar>
+       </AccountLockdownProvider>
+-    </ClerkAppProvider>
++    </AppAuthProvider>
+   );
+ }
+
+diff --git a/apps/frontend/src/app/dashboard/overview/page.tsx b/apps/frontend/src/app/dashboard/overview/page.tsx
+--- a/apps/frontend/src/app/dashboard/overview/page.tsx
++++ b/apps/frontend/src/app/dashboard/overview/page.tsx
+@@ -1,4 +1,5 @@
+-import { apiServer } from '@ringee/frontend-shared/lib/api.server';
++import { cookies } from 'next/headers';
++import { createCookieApiServer } from '@ringee/frontend-shared/lib/api.server';
+ import { Dashboard } from '@/features/dashboard/components/dashboard';
+ import type { DashboardLayoutResponse } from '@/features/dashboard/lib/types';
+ import { getTranslations } from 'next-intl/server';
+@@ -15,7 +16,8 @@ export async function generateMetadata() {
+ export const dynamic = 'force-dynamic';
+ 
+ export default async function DashboardOverviewPage() {
++  const api = createCookieApiServer((await cookies()).toString());
+   const initialLayout =
+-    await apiServer.get<DashboardLayoutResponse>('/dashboard/layout');
++    await api.get<DashboardLayoutResponse>('/dashboard/layout');
+   return <Dashboard initialLayout={initialLayout} />;
+ }
+
+diff --git a/apps/frontend/src/app/dashboard/page.tsx b/apps/frontend/src/app/dashboard/page.tsx
+--- a/apps/frontend/src/app/dashboard/page.tsx
++++ b/apps/frontend/src/app/dashboard/page.tsx
+@@ -1,10 +1,10 @@
+-import { auth } from '@clerk/nextjs/server';
++import { getAuthPrincipal } from '@/features/auth/lib/principal.server';
+ import { redirect } from 'next/navigation';
+ 
+ export default async function Dashboard() {
+-  const { userId } = await auth();
++  const principal = await getAuthPrincipal();
+ 
+-  if (!userId) {
++  if (!principal) {
+     return redirect('/auth/sign-in');
+   } else {
+     redirect('/dashboard/call');
+
+diff --git a/apps/frontend/src/app/dashboard/rate/page.tsx b/apps/frontend/src/app/dashboard/rate/page.tsx
+--- a/apps/frontend/src/app/dashboard/rate/page.tsx
++++ b/apps/frontend/src/app/dashboard/rate/page.tsx
+@@ -1,6 +1,7 @@
+ import FormCardSkeleton from '@ringee/frontend-shared/components/form-card-skeleton';
+ import { RateClient } from '@/features/rate/components/rate';
+-import { apiServer } from '@ringee/frontend-shared/lib/api.server';
++import { cookies } from 'next/headers';
++import { createCookieApiServer } from '@ringee/frontend-shared/lib/api.server';
+ import { Suspense } from 'react';
+ import { Metadata } from 'next';
+ import { getTranslations } from 'next-intl/server';
+@@ -14,7 +15,8 @@ export async function generateMetadata(): Promise<Metadata> {
+ }
+ 
+ export default async function RateLayout() {
+-  const rates = await apiServer.get('/telephony/rates');
++  const api = createCookieApiServer((await cookies()).toString());
++  const rates = await api.get('/telephony/rates');
+ 
+   return (
+     <Suspense fallback={<FormCardSkeleton />}>
+
+diff --git a/apps/frontend/src/app/dashboard/settings/page.tsx b/apps/frontend/src/app/dashboard/settings/page.tsx
+--- a/apps/frontend/src/app/dashboard/settings/page.tsx
++++ b/apps/frontend/src/app/dashboard/settings/page.tsx
+@@ -1,10 +1,10 @@
+-import { auth } from '@clerk/nextjs/server';
++import { getAuthPrincipal } from '@/features/auth/lib/principal.server';
+ import { redirect } from 'next/navigation';
+ 
+ export default async function SettingsPage() {
+-  const { userId } = await auth();
++  const principal = await getAuthPrincipal();
+ 
+-  if (!userId) {
++  if (!principal) {
+     return redirect('/auth/sign-in');
+   } else {
+     redirect('/dashboard/settings/overview');
+
+diff --git a/apps/frontend/src/app/infra/layout.tsx b/apps/frontend/src/app/infra/layout.tsx
+--- a/apps/frontend/src/app/infra/layout.tsx
++++ b/apps/frontend/src/app/infra/layout.tsx
+@@ -1,6 +1,6 @@
+-import ClerkAppProvider from '@/components/layout/clerk-app-provider';
++import AppAuthProvider from '@/components/layout/auth-provider';
+ import { InfraShell } from '@/features/infra/components/infra-shell';
+-import { currentUser } from '@clerk/nextjs/server';
++import { getAuthPrincipal } from '@/features/auth/lib/principal.server';
+ import { redirect } from 'next/navigation';
+ import { needsPhoneVerification } from '@/features/auth/lib/phone-access.server';
+ 
+@@ -14,15 +14,15 @@ export default async function InfraLayout({
+ }: {
+   children: React.ReactNode;
+ }) {
+-  const user = await currentUser();
++  const principal = await getAuthPrincipal();
+ 
+-  if (user && (await needsPhoneVerification(user.phoneNumbers))) {
++  if (principal && (await needsPhoneVerification())) {
+     redirect('/auth/sign-up/continue');
+   }
+ 
+   return (
+-    <ClerkAppProvider>
++    <AppAuthProvider>
+       <InfraShell>{children}</InfraShell>
+-    </ClerkAppProvider>
++    </AppAuthProvider>
+   );
+ }
+
+diff --git a/apps/frontend/src/app/zz-call-campaigns/page.tsx b/apps/frontend/src/app/zz-call-campaigns/page.tsx
+--- a/apps/frontend/src/app/zz-call-campaigns/page.tsx
++++ b/apps/frontend/src/app/zz-call-campaigns/page.tsx
+@@ -3,7 +3,7 @@
+ // TEMPORARY review check — delete with its .next output when done.
+ import { useEffect } from 'react';
+ import { useSearchParams } from 'next/navigation';
+-import ClerkAppProvider from '@/components/layout/clerk-app-provider';
++import AppAuthProvider from '@/components/layout/auth-provider';
+ import { CampaignsView } from '@/features/calls/components/campaigns/campaigns-view';
+ import { UnlockCampaignsButton } from '@/features/calls/components/campaigns/unlock-campaigns-button';
+ import { useTelnyxStore } from '@/features/calls/store/telnyx.store';
+@@ -113,8 +113,8 @@ function Inner() {
+ 
+ export default function Page() {
+   return (
+-    <ClerkAppProvider>
++    <AppAuthProvider>
+       <Inner />
+-    </ClerkAppProvider>
++    </AppAuthProvider>
+   );
+ }
+
+diff --git a/apps/frontend/src/components/layout/app-sidebar.tsx b/apps/frontend/src/components/layout/app-sidebar.tsx
+--- a/apps/frontend/src/components/layout/app-sidebar.tsx
++++ b/apps/frontend/src/components/layout/app-sidebar.tsx
+@@ -39,7 +39,7 @@ import { Button } from '@ringee/frontend-shared/components/ui/button';
+ import { UserAvatarProfile } from '@ringee/frontend-shared/components/user-avatar-profile';
+ import { navGroups } from '@ringee/frontend-shared/constants/data';
+ import type { NavItem } from '@ringee/frontend-shared/types';
+-import { useUser, useOrganization } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import {
+   IconAddressBook,
+   IconChevronsDown,
+@@ -52,7 +52,7 @@ import {
+ import { useIsSuperAdmin } from '@/features/backoffice/lib/use-is-super-admin';
+ import { useSettingsDialogStore } from '@/features/settings/store/settings-dialog.store';
+ 
+-import { SignOutButton } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import Link from 'next/link';
+ import { usePathname, useRouter } from 'next/navigation';
+ import * as React from 'react';
+@@ -207,15 +207,17 @@ export default function AppSidebar({ useMock }: { useMock?: boolean }) {
+   const tNav = useTranslations('navigation');
+   const tCommon = useTranslations('common');
+ 
+-  const { user } = useMock
++  const { user, signOut } = useMock
+     ? {
+         user: {
+-          imageUrl: '/edison.jpg',
+-          fullName: 'Edison J. Padilla',
+-          emailAddresses: [{ emailAddress: 'edisonjpp@gmail.com' }]
+-        }
++          id: 'mock',
++          email: 'edisonjpp@gmail.com',
++          name: 'Edison J. Padilla',
++          imageUrl: '/edison.jpg'
++        },
++        signOut: async () => {}
+       }
+-    : useUser();
++    : useSession();
+ 
+   const router = useRouter();
+ 
+@@ -236,7 +238,7 @@ export default function AppSidebar({ useMock }: { useMock?: boolean }) {
+   // Lock Outreach when there is no active organization session
+   const { organization: activeOrg } = useMock
+     ? { organization: { id: 'mock' } }
+-    : useOrganization();
++    : useSession();
+ 
+   const hasActiveOrg = !!activeOrg;
+   const { state: sidebarState } = useSidebar();
+@@ -571,10 +573,13 @@ export default function AppSidebar({ useMock }: { useMock?: boolean }) {
+                 )}
+ 
+                 <DropdownMenuSeparator />
+-                <DropdownMenuItem>
+-                  {/* @ts-ignore */}
++                <DropdownMenuItem
++                  onClick={() => {
++                    void signOut().then(() => router.push('/auth/sign-in'));
++                  }}
++                >
+                   <IconLogout className='mr-2 h-4 w-4' />
+-                  <SignOutButton redirectUrl='/auth/sign-in' />
++                  Sign out
+                 </DropdownMenuItem>
+               </DropdownMenuContent>
+             </DropdownMenu>
+
+diff --git a/apps/frontend/src/components/layout/providers.tsx b/apps/frontend/src/components/layout/providers.tsx
+--- a/apps/frontend/src/components/layout/providers.tsx
++++ b/apps/frontend/src/components/layout/providers.tsx
+@@ -3,11 +3,11 @@ import React from 'react';
+ import { ActiveThemeProvider } from '@ringee/frontend-shared/components/active-theme';
+ 
+ // Root-level providers shared by every route, including the public marketing
+-// tree. Clerk is intentionally NOT mounted here — it lives in `ClerkAppProvider`
+-// and is wrapped only around the authenticated route groups (dashboard,
+-// backoffice, auth). That keeps Clerk's frontend bundle and its `no-store`
+-// frontend-API request off the marketing and public call-session pages, cutting
+-// their JS weight and letting them qualify for the back/forward cache.
++// tree. The auth provider is intentionally NOT mounted here — it lives in
++// `AppAuthProvider` and is wrapped only around the authenticated route groups
++// (dashboard, backoffice, auth). That keeps the session bootstrap off the
++// marketing and public call-session pages, cutting their JS weight and letting
++// them qualify for the back/forward cache.
+ export default function Providers({
+   activeThemeValue,
+   children
+
+diff --git a/apps/frontend/src/components/layout/support-chat.tsx b/apps/frontend/src/components/layout/support-chat.tsx
+--- a/apps/frontend/src/components/layout/support-chat.tsx
++++ b/apps/frontend/src/components/layout/support-chat.tsx
+@@ -1,6 +1,6 @@
+ 'use client';
+ 
+-import { useUser } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { CrispChat } from '@ringee/frontend-shared/components/crisp-chat';
+ import { getIntercomAppId, IntercomChat } from './intercom-chat';
+ 
+@@ -20,7 +20,7 @@ export function SupportChat() {
+  * Clerk loads, then identifies the user once it is available.
+  */
+ export function ClerkSupportChat() {
+-  const { user, isLoaded } = useUser();
++  const { user, isLoaded } = useSession();
+ 
+   if (!getIntercomAppId()) return <CrispChat />;
+ 
+@@ -30,9 +30,8 @@ export function ClerkSupportChat() {
+         isLoaded && user
+           ? {
+               id: user.id,
+-              name: user.fullName,
+-              email: user.primaryEmailAddress?.emailAddress,
+-              createdAt: user.createdAt
++              name: user.name,
++              email: user.email
+             }
+           : null
+       }
+
+diff --git a/apps/frontend/src/components/layout/user-nav.tsx b/apps/frontend/src/components/layout/user-nav.tsx
+--- a/apps/frontend/src/components/layout/user-nav.tsx
++++ b/apps/frontend/src/components/layout/user-nav.tsx
+@@ -10,23 +10,24 @@ import {
+   DropdownMenuTrigger
+ } from '@ringee/frontend-shared/components/ui/dropdown-menu';
+ import { UserAvatarProfile } from '@ringee/frontend-shared/components/user-avatar-profile';
+-import { SignOutButton, useUser } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useRouter } from 'next/navigation';
+ import { Icons } from '@ringee/frontend-shared/components/icons';
+ import { useOrgRole } from '@ringee/frontend-shared/hooks/use-org-role';
+ import { useTranslations } from 'next-intl';
+ 
+ export function UserNav({ useMock }: { useMock?: boolean }) {
+-  const { user } = useMock
++  const { user, signOut } = useMock
+     ? {
+         user: {
+-          imageUrl: '/edison.jpg',
+-          fullName: 'Edison J. Padilla',
+-          emailAddresses: [{ emailAddress: 'edisonjpp@gmail.com' }],
+-          phoneNumbers: []
+-        }
++          id: 'mock',
++          email: 'edisonjpp@gmail.com',
++          name: 'Edison J. Padilla',
++          imageUrl: '/edison.jpg'
++        },
++        signOut: async () => {}
+       }
+-    : useUser();
++    : useSession();
+   const router = useRouter();
+ 
+   const { canAccessAdminFeatures } = useMock
+@@ -36,10 +37,7 @@ export function UserNav({ useMock }: { useMock?: boolean }) {
+   const tNavigation = useTranslations('navigation');
+ 
+   if (user) {
+-    const identity =
+-      user.emailAddresses[0]?.emailAddress ??
+-      user.phoneNumbers[0]?.phoneNumber ??
+-      '';
++    const identity = user.email ?? '';
+ 
+     return (
+       <DropdownMenu>
+@@ -57,7 +55,7 @@ export function UserNav({ useMock }: { useMock?: boolean }) {
+           <DropdownMenuLabel className='font-normal'>
+             <div className='flex flex-col space-y-1'>
+               <p className='text-sm leading-none font-medium'>
+-                {user.fullName}
++                {user.name}
+               </p>
+               <p className='text-muted-foreground text-xs leading-none'>
+                 {identity}
+@@ -129,8 +127,12 @@ export function UserNav({ useMock }: { useMock?: boolean }) {
+           )}
+ 
+           <DropdownMenuSeparator />
+-          <DropdownMenuItem>
+-            <SignOutButton redirectUrl='/auth/sign-in' />
++          <DropdownMenuItem
++            onClick={() => {
++              void signOut().then(() => router.push('/auth/sign-in'));
++            }}
++          >
++            {t('signOut')}
+           </DropdownMenuItem>
+         </DropdownMenuContent>
+       </DropdownMenu>
+
+diff --git a/apps/frontend/src/components/use-member-filter-column.tsx b/apps/frontend/src/components/use-member-filter-column.tsx
+--- a/apps/frontend/src/components/use-member-filter-column.tsx
++++ b/apps/frontend/src/components/use-member-filter-column.tsx
+@@ -3,7 +3,7 @@
+ import * as React from 'react';
+ import type { ColumnDef } from '@tanstack/react-table';
+ import type { Option } from '@ringee/frontend-shared/types/data-table';
+-import { useOrganization } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useOrgRole } from '@ringee/frontend-shared/hooks/use-org-role';
+ import { useApi } from '@ringee/frontend-shared/hooks/use.api';
+ import { useTranslations } from 'next-intl';
+@@ -22,7 +22,7 @@ export function useMemberFilterColumn<TData>(): {
+   options: Option[];
+ } {
+   const { isOrgAdmin } = useOrgRole();
+-  const { organization } = useOrganization();
++  const { organization } = useSession();
+   const api = useApi();
+   const t = useTranslations('common.memberFilter');
+   const [options, setOptions] = React.useState<Option[]>([]);
+@@ -33,35 +33,22 @@ export function useMemberFilterColumn<TData>(): {
+       return;
+     }
+     let active = true;
+-    organization.getMemberships().then(async (res) => {
+-      const clerkIds = res.data
+-        .map((m) => m.publicUserData?.userId)
+-        .filter(Boolean) as string[];
+-      if (clerkIds.length === 0) {
++    api
++      .get<
++        Array<{ id: string; name: string | null; email: string | null }>
++      >(`/organizations/${organization.id}/members`)
++      .then((rows) => {
++        if (!active) return;
++        setOptions(
++          (Array.isArray(rows) ? rows : []).map((m) => ({
++            label: m.name ?? m.email ?? t('member'),
++            value: m.id
++          }))
++        );
++      })
++      .catch(() => {
+         if (active) setOptions([]);
+-        return;
+-      }
+-      const map = await api.get<{ clerkId: string; id: string }[]>(
+-        `/user/by-clerk-ids?ids=${clerkIds.join(',')}`
+-      );
+-      if (!active) return;
+-      const lookup = new Map(map.map((u) => [u.clerkId, u.id]));
+-      setOptions(
+-        res.data
+-          .map((m) => {
+-            const clerkId = m.publicUserData?.userId || '';
+-            const label =
+-              `${m.publicUserData?.firstName || ''} ${
+-                m.publicUserData?.lastName || ''
+-              }`.trim() ||
+-              m.publicUserData?.identifier ||
+-              t('member');
+-            return { label, value: lookup.get(clerkId) || '' };
+-          })
+-          // Drop members whose DB user couldn't be resolved.
+-          .filter((o) => o.value)
+-      );
+-    });
++      });
+     return () => {
+       active = false;
+     };
+
+diff --git a/apps/frontend/src/features/agent-access/components/cli-authorize.tsx b/apps/frontend/src/features/agent-access/components/cli-authorize.tsx
+--- a/apps/frontend/src/features/agent-access/components/cli-authorize.tsx
++++ b/apps/frontend/src/features/agent-access/components/cli-authorize.tsx
+@@ -2,7 +2,7 @@
+ 
+ import { useCallback, useEffect, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+-import { useClerk, useUser } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useFormatter, useTranslations } from 'next-intl';
+ import {
+   AlertTriangle,
+@@ -221,8 +221,8 @@ function PendingRequest({
+ }) {
+   const t = useTranslations('auth.cliAuthorize');
+   const format = useFormatter();
+-  const { user } = useUser();
+-  const { signOut } = useClerk();
++  const { user } = useSession();
++  const { signOut } = useSession();
+   const email = user?.primaryEmailAddress?.emailAddress;
+   const now = new Date();
+ 
+
+diff --git a/apps/frontend/src/features/ai-voice-agents/lib/access.ts b/apps/frontend/src/features/ai-voice-agents/lib/access.ts
+--- a/apps/frontend/src/features/ai-voice-agents/lib/access.ts
++++ b/apps/frontend/src/features/ai-voice-agents/lib/access.ts
+@@ -1,4 +1,5 @@
+-import { apiServer } from '@ringee/frontend-shared/lib/api.server';
++import { cookies } from 'next/headers';
++import { createCookieApiServer } from '@ringee/frontend-shared/lib/api.server';
+ 
+ /**
+  * AI Voice Agents access for the active workspace, resolved by the API.
+@@ -8,7 +9,8 @@ import { apiServer } from '@ringee/frontend-shared/lib/api.server';
+  */
+ export async function fetchHasVoiceAgentAccess(): Promise<boolean> {
+   try {
+-    const res = await apiServer.get<{ hasAccess: boolean }>(
++    const api = createCookieApiServer((await cookies()).toString());
++    const res = await api.get<{ hasAccess: boolean }>(
+       '/ai-voice-agents-access'
+     );
+     return !!res?.hasAccess;
+
+diff --git a/apps/frontend/src/features/ai/components/empty-state.tsx b/apps/frontend/src/features/ai/components/empty-state.tsx
+--- a/apps/frontend/src/features/ai/components/empty-state.tsx
++++ b/apps/frontend/src/features/ai/components/empty-state.tsx
+@@ -3,7 +3,7 @@
+ import { Button } from '@ringee/frontend-shared/components/ui/button';
+ import { Textarea } from '@ringee/frontend-shared/components/ui/textarea';
+ import { useApi } from '@ringee/frontend-shared/hooks/use.api';
+-import { useUser } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import {
+   IconBolt,
+   IconCheck,
+@@ -69,7 +69,7 @@ function greetingKey(date: Date): string {
+ 
+ export function EmptyState({ onSubmit, sending, outOfCredit }: Props) {
+   const t = useTranslations('ai');
+-  const { user } = useUser();
++  const { user } = useSession();
+   const [mode, setMode] = useState<ProspectingMode>('icp');
+   const [value, setValue] = useState('');
+   const firstName = user?.firstName?.trim() ?? '';
+
+diff --git a/apps/frontend/src/features/auth/components/sign-in-view.tsx b/apps/frontend/src/features/auth/components/sign-in-view.tsx
+--- a/apps/frontend/src/features/auth/components/sign-in-view.tsx
++++ b/apps/frontend/src/features/auth/components/sign-in-view.tsx
+@@ -1,7 +1,7 @@
+-import { SignIn as ClerkSignInForm } from '@clerk/nextjs';
+ import Link from 'next/link';
+ import { getTranslations } from 'next-intl/server';
+ import AuthPageShell from './auth-page-shell';
++import UserAuthForm from './user-auth-form';
+ 
+ export default async function SignInViewPage() {
+   const t = await getTranslations('auth');
+@@ -12,7 +12,7 @@ export default async function SignInViewPage() {
+       author={t('testimonial.author')}
+       mobileLogoClassName='mb-10'
+     >
+-      <ClerkSignInForm />
++      <UserAuthForm />
+ 
+       <p className='text-muted-foreground px-8 text-center text-sm'>
+         {t.rich('legal.agreement', {
+
+diff --git a/apps/frontend/src/features/auth/components/sign-up-view.tsx b/apps/frontend/src/features/auth/components/sign-up-view.tsx
+--- a/apps/frontend/src/features/auth/components/sign-up-view.tsx
++++ b/apps/frontend/src/features/auth/components/sign-up-view.tsx
+@@ -1,28 +1,37 @@
+-import { SignUp as ClerkSignUpForm } from '@clerk/nextjs';
+ import Link from 'next/link';
+ import { getTranslations } from 'next-intl/server';
+ import AuthPageShell from './auth-page-shell';
+ 
++/**
++ * Closed signup: Ringee does not offer self-registration. Accounts are
++ * provisioned by workspace administrators (staff admission flow); invited
++ * users sign in with the email and temporary password they were given.
++ */
+ export default async function SignUpViewPage() {
+   const t = await getTranslations('auth');
++
+   return (
+     <AuthPageShell
+       quote={t('testimonial.quote')}
+       author={t('testimonial.author')}
+     >
+-      <ClerkSignUpForm
+-        forceRedirectUrl='/auth/sign-up/continue'
+-        appearance={{
+-          elements: {
+-            formFieldRow__phoneNumber: {
+-              display: 'none'
+-            }
+-          }
+-        }}
+-        initialValues={{
+-          emailAddress: ''
+-        }}
+-      />
++      <div className='w-full space-y-4'>
++        <div className='space-y-2'>
++          <h1 className='text-2xl font-semibold tracking-tight'>
++            {t('closedSignup.title')}
++          </h1>
++          <p className='text-muted-foreground text-sm'>
++            {t('closedSignup.description')}
++          </p>
++        </div>
++        <Link
++          href='/auth/sign-in'
++          className='text-primary text-sm font-medium underline underline-offset-4 hover:opacity-80'
++        >
++          {t('closedSignup.signInLink')}
++        </Link>
++      </div>
++
+       <p className='text-muted-foreground px-8 text-center text-sm'>
+         {t.rich('legal.agreement', {
+           terms: (chunks) => (
+
+diff --git a/apps/frontend/src/features/auth/components/verify-phone-view.tsx b/apps/frontend/src/features/auth/components/verify-phone-view.tsx
+--- a/apps/frontend/src/features/auth/components/verify-phone-view.tsx
++++ b/apps/frontend/src/features/auth/components/verify-phone-view.tsx
+@@ -2,7 +2,8 @@
+ 
+ import { useCallback, useEffect, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+-import { SignOutButton, useUser } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
++import { ApiError } from '@ringee/frontend-shared/lib/api';
+ import {
+   IconArrowLeft,
+   IconArrowRight,
+@@ -40,27 +41,21 @@ const RESEND_COOLDOWN_SECONDS = 30;
+ 
+ type VerifiablePhone = {
+   phoneNumber: string;
+-  verification: { status: string | null };
+-  prepareVerification: () => Promise<VerifiablePhone>;
+-  attemptVerification: (params: { code: string }) => Promise<VerifiablePhone>;
+-  destroy: () => Promise<void>;
+ };
+ 
+ function getErrorMessage(error: unknown, fallback: string): string {
+-  const errors = (
+-    error as {
+-      errors?: Array<{ longMessage?: string; message?: string }>;
+-    }
+-  )?.errors;
+-
+-  return errors?.[0]?.longMessage ?? errors?.[0]?.message ?? fallback;
++  if (error instanceof ApiError && typeof error.data === 'object' && error.data !== null) {
++    const message = (error.data as { message?: unknown }).message;
++    if (typeof message === 'string' && message) return message;
++  }
++  return fallback;
+ }
+ 
+ export default function VerifyPhoneView() {
+   const t = useTranslations('auth');
+   const router = useRouter();
+   const api = useApi();
+-  const { isLoaded, user } = useUser();
++  const { isLoaded, user, signOut, refresh } = useSession();
+   const [phone, setPhone] = useState<PhoneValue | undefined>();
+   const [pendingPhone, setPendingPhone] = useState<VerifiablePhone | null>(
+     null
+@@ -107,12 +102,6 @@ export default function VerifyPhoneView() {
+     [api, continueToDashboard, t]
+   );
+ 
+-  useEffect(() => {
+-    if (user?.hasVerifiedPhoneNumber) {
+-      continueToDashboard();
+-    }
+-  }, [continueToDashboard, user?.hasVerifiedPhoneNumber, user?.updatedAt]);
+-
+   useEffect(() => {
+     const interval = window.setInterval(() => {
+       void checkAccess(false);
+@@ -141,14 +130,9 @@ export default function VerifyPhoneView() {
+     setFormError(null);
+ 
+     try {
+-      const existing = user.phoneNumbers.find(
+-        (candidate) => candidate.phoneNumber === phone
+-      );
+-      const phoneNumber =
+-        existing ?? (await user.createPhoneNumber({ phoneNumber: phone }));
+-      const prepared = await phoneNumber.prepareVerification();
++      await api.post('/phone/verification/start', { phoneNumber: phone });
+ 
+-      setPendingPhone(prepared);
++      setPendingPhone({ phoneNumber: phone });
+       setCode('');
+       setResendIn(RESEND_COOLDOWN_SECONDS);
+     } catch (error) {
+@@ -170,14 +154,12 @@ export default function VerifyPhoneView() {
+     setFormError(null);
+ 
+     try {
+-      const result = await pendingPhone.attemptVerification({ code });
++      await api.post('/phone/verification/confirm', {
++        phoneNumber: pendingPhone.phoneNumber,
++        code
++      });
+ 
+-      if (result.verification.status !== 'verified') {
+-        setFormError(t('phoneVerification.invalidCode'));
+-        return;
+-      }
+-
+-      await user?.reload();
++      await refresh();
+       toast.success(t('phoneVerification.verified'));
+       continueToDashboard();
+     } catch (error) {
+@@ -196,8 +178,9 @@ export default function VerifyPhoneView() {
+     setFormError(null);
+ 
+     try {
+-      const prepared = await pendingPhone.prepareVerification();
+-      setPendingPhone(prepared);
++      await api.post('/phone/verification/start', {
++        phoneNumber: pendingPhone.phoneNumber
++      });
+       setResendIn(RESEND_COOLDOWN_SECONDS);
+       toast.success(t('phoneVerification.codeResent'));
+     } catch (error) {
+@@ -209,26 +192,16 @@ export default function VerifyPhoneView() {
+     }
+   };
+ 
+-  const changePhoneNumber = async () => {
+-    const phoneToRemove = pendingPhone;
+-
++  const changePhoneNumber = () => {
+     setPendingPhone(null);
+     setCode('');
+     setFormError(null);
+     setResendIn(0);
+-
+-    try {
+-      await phoneToRemove?.destroy();
+-      await user?.reload();
+-    } catch {
+-      // The unverified number can be reused if Clerk already removed it or the
+-      // cleanup request fails. It should not block the user from trying again.
+-    }
+   };
+ 
+   const openSupportChat = () => {
+-    const email = user?.primaryEmailAddress?.emailAddress;
+-    const name = user?.fullName;
++    const email = user?.email;
++    const name = user?.name;
+     const crispWebsiteId = process.env.NEXT_PUBLIC_CRISP_WEBSITE_ID;
+ 
+     // The auth layout already identified the user to Intercom.
+@@ -482,20 +455,19 @@ export default function VerifyPhoneView() {
+             <IconCheck className='text-primary size-3.5 shrink-0' />
+             <span className='truncate'>
+               {t('phoneVerification.accountLabel', {
+-                email:
+-                  user?.primaryEmailAddress?.emailAddress ??
+-                  t('phoneVerification.yourAccount')
++                email: user?.email ?? t('phoneVerification.yourAccount')
+               })}
+             </span>
+           </span>
+-          <SignOutButton redirectUrl='/auth/sign-in'>
+-            <button
+-              type='button'
+-              className='hover:text-foreground shrink-0 transition-colors'
+-            >
+-              {t('phoneVerification.signOut')}
+-            </button>
+-          </SignOutButton>
++          <button
++            type='button'
++            className='hover:text-foreground shrink-0 transition-colors'
++            onClick={() => {
++              void signOut().then(() => router.replace('/auth/sign-in'));
++            }}
++          >
++            {t('phoneVerification.signOut')}
++          </button>
+         </div>
+       </div>
+     </AuthPageShell>
+
+diff --git a/apps/frontend/src/features/auth/lib/phone-access.server.ts b/apps/frontend/src/features/auth/lib/phone-access.server.ts
+--- a/apps/frontend/src/features/auth/lib/phone-access.server.ts
++++ b/apps/frontend/src/features/auth/lib/phone-access.server.ts
+@@ -1,13 +1,12 @@
+ import 'server-only';
+-import { apiServer } from '@ringee/frontend-shared/lib/api.server';
+-import {
+-  hasVerifiedPhoneNumber,
+-  type PhoneAccessRequirements
+-} from './phone-verification';
++import { cookies } from 'next/headers';
++import { createCookieApiServer } from '@ringee/frontend-shared/lib/api.server';
++import type { PhoneAccessRequirements } from './phone-verification';
+ 
+ export async function getPhoneAccessRequirements(): Promise<PhoneAccessRequirements> {
+   try {
+-    return await apiServer.get<PhoneAccessRequirements>(
++    const api = createCookieApiServer((await cookies()).toString());
++    return await api.get<PhoneAccessRequirements>(
+       '/user/access-requirements'
+     );
+   } catch (error) {
+@@ -18,16 +17,7 @@ export async function getPhoneAccessRequirements(): Promise<PhoneAccessRequireme
+   }
+ }
+ 
+-export async function needsPhoneVerification(
+-  phoneNumbers:
+-    | Array<{ verification?: { status?: string | null } | null }>
+-    | null
+-    | undefined
+-): Promise<boolean> {
++export async function needsPhoneVerification(): Promise<boolean> {
+   const requirements = await getPhoneAccessRequirements();
+-  return (
+-    requirements.phoneRequired &&
+-    !requirements.phoneVerified &&
+-    !hasVerifiedPhoneNumber(phoneNumbers)
+-  );
++  return requirements.phoneRequired && !requirements.phoneVerified;
+ }
+
+diff --git a/apps/frontend/src/features/backoffice/api.ts b/apps/frontend/src/features/backoffice/api.ts
+--- a/apps/frontend/src/features/backoffice/api.ts
++++ b/apps/frontend/src/features/backoffice/api.ts
+@@ -105,9 +105,10 @@ export interface AgentUsageStats {
+ 
+ /** POST /backoffice/accounts — a login made from a name and an email. */
+ export interface CreatedAccount {
+-  /** The Ringee user; null until the Clerk webhook writes it. */
++  /** The Ringee user; null until its row exists. */
+   userId: string | null;
+-  clerkUserId: string;
++  /** The provider-neutral auth identity id (the User UUID). */
++  authUserId: string;
+   email: string;
+   /** Whether the credentials email (cc edison@getringee.com) went out. */
+   emailSent: boolean;
+@@ -172,7 +173,7 @@ export interface UserAccessAdminState {
+   blockedAt: string | null;
+   blockedReason: string | null;
+   canCall: boolean;
+-  clerkBanned: boolean | null;
++  identityBanned: boolean;
+ }
+ 
+ /** What a ban / forced disconnect actually did, reported back to the admin. */
+@@ -579,18 +580,18 @@ export function useBackofficeApi() {
+         ),
+ 
+       /**
+-       * Full lockdown: Clerk ban + Ringee block + every live call hung up at
+-       * the provider + `account.blocked` pushed to every connected device.
++       * Full lockdown: identity ban + Ringee block + every live call hung up
++       * at the provider + `account.blocked` pushed to every connected device.
+        */
+-      banInClerk: (id: string) =>
++      banIdentity: (id: string) =>
+         api.post<UserAccessEnforcementResponse>(
+-          `${BASE}/accounts/user/${id}/access/clerk/ban`,
++          `${BASE}/accounts/user/${id}/access/identity/ban`,
+           {}
+         ),
+ 
+-      unbanInClerk: (id: string) =>
++      unbanIdentity: (id: string) =>
+         api.post<UserAccessEnforcementResponse>(
+-          `${BASE}/accounts/user/${id}/access/clerk/unban`,
++          `${BASE}/accounts/user/${id}/access/identity/unban`,
+           {}
+         ),
+ 
+
+diff --git a/apps/frontend/src/features/backoffice/components/account-detail.tsx b/apps/frontend/src/features/backoffice/components/account-detail.tsx
+--- a/apps/frontend/src/features/backoffice/components/account-detail.tsx
++++ b/apps/frontend/src/features/backoffice/components/account-detail.tsx
+@@ -179,8 +179,8 @@ export function AccountDetail({ type, id }: { type: AccountType; id: string }) {
+ type AccessAction =
+   | 'stripe'
+   | 'ringee'
+-  | 'clerk-ban'
+-  | 'clerk-unban'
++  | 'identity-ban'
++  | 'identity-unban'
+   | 'drop-calls';
+ 
+ /** "3 calls ended · 2 devices notified · 1 dialer session offline" */
+@@ -247,18 +247,18 @@ function AccessControlCard({
+           );
+           break;
+         }
+-        case 'clerk-ban': {
+-          const { access: updated, enforcement } = await api.banInClerk(id);
++        case 'identity-ban': {
++          const { access: updated, enforcement } = await api.banIdentity(id);
+           onUpdated(updated);
+           toast.success(`User banned — ${describeEnforcement(enforcement)}`, {
+             duration: 8000
+           });
+           break;
+         }
+-        case 'clerk-unban': {
+-          const { access: updated } = await api.unbanInClerk(id);
++        case 'identity-unban': {
++          const { access: updated } = await api.unbanIdentity(id);
+           onUpdated(updated);
+-          toast.success('User unbanned in Clerk');
++          toast.success('User identity unbanned');
+           break;
+         }
+       }
+@@ -286,14 +286,9 @@ function AccessControlCard({
+             Ringee: {access.ringeeBlocked ? 'blocked' : 'active'}
+           </Badge>
+           <Badge
+-            variant={access.clerkBanned === true ? 'destructive' : 'secondary'}
++            variant={access.identityBanned ? 'destructive' : 'secondary'}
+           >
+-            Clerk:{' '}
+-            {access.clerkBanned === null
+-              ? 'unknown'
+-              : access.clerkBanned
+-                ? 'banned'
+-                : 'active'}
++            Identity: {access.identityBanned ? 'banned' : 'active'}
+           </Badge>
+           <Badge variant={access.canCall ? 'secondary' : 'outline'}>
+             Calls: {access.canCall ? 'enabled' : 'disabled'}
+@@ -379,18 +374,18 @@ function AccessControlCard({
+                 <Button
+                   size='sm'
+                   variant='destructive'
+-                  disabled={busy !== null || access.clerkBanned === true}
++                  disabled={busy !== null || access.identityBanned}
+                 >
+-                  {busy === 'clerk-ban' ? 'Banning…' : 'Ban in Clerk'}
++                  {busy === 'identity-ban' ? 'Banning…' : 'Ban identity'}
+                 </Button>
+               </AlertDialogTrigger>
+               <AlertDialogContent>
+                 <AlertDialogHeader>
+                   <AlertDialogTitle>Ban this user?</AlertDialogTitle>
+                   <AlertDialogDescription>
+-                    This revokes Clerk access, blocks the Ringee account,
+-                    disables outbound calling, hangs up every call in progress
+-                    and signs the user out of all {devices?.length ?? 0}{' '}
++                    This revokes the identity's sessions, blocks the Ringee
++                    account, disables outbound calling, hangs up every call in
++                    progress and signs the user out of all {devices?.length ?? 0}{' '}
+                     connected device(s).
+                   </AlertDialogDescription>
+                 </AlertDialogHeader>
+@@ -398,7 +393,7 @@ function AccessControlCard({
+                   <AlertDialogCancel>Cancel</AlertDialogCancel>
+                   <AlertDialogAction
+                     className='bg-destructive hover:bg-destructive/90 text-white'
+-                    onClick={() => run('clerk-ban')}
++                    onClick={() => run('identity-ban')}
+                   >
+                     Ban user
+                   </AlertDialogAction>
+@@ -408,10 +403,10 @@ function AccessControlCard({
+             <Button
+               size='sm'
+               variant='outline'
+-              disabled={busy !== null || access.clerkBanned === false}
+-              onClick={() => run('clerk-unban')}
++              disabled={busy !== null || !access.identityBanned}
++              onClick={() => run('identity-unban')}
+             >
+-              {busy === 'clerk-unban' ? 'Unbanning…' : 'Unban in Clerk'}
++              {busy === 'identity-unban' ? 'Unbanning…' : 'Unban identity'}
+             </Button>
+           </div>
+         </div>
+
+diff --git a/apps/frontend/src/features/backoffice/lib/super-admins.ts b/apps/frontend/src/features/backoffice/lib/super-admins.ts
+--- a/apps/frontend/src/features/backoffice/lib/super-admins.ts
++++ b/apps/frontend/src/features/backoffice/lib/super-admins.ts
+@@ -1,4 +1,5 @@
+-import { apiServer } from '@ringee/frontend-shared/lib/api.server';
++import { cookies } from 'next/headers';
++import { createCookieApiServer } from '@ringee/frontend-shared/lib/api.server';
+ 
+ /**
+  * Backoffice access, resolved by the API.
+@@ -13,7 +14,8 @@ import { apiServer } from '@ringee/frontend-shared/lib/api.server';
+  */
+ export async function fetchIsSuperAdmin(): Promise<boolean> {
+   try {
+-    const res = await apiServer.get<{ isSuperAdmin: boolean }>(
++    const api = createCookieApiServer((await cookies()).toString());
++    const res = await api.get<{ isSuperAdmin: boolean }>(
+       '/backoffice/access'
+     );
+     return !!res?.isSuperAdmin;
+
+diff --git a/apps/frontend/src/features/calls/components/call.page.view.tsx b/apps/frontend/src/features/calls/components/call.page.view.tsx
+--- a/apps/frontend/src/features/calls/components/call.page.view.tsx
++++ b/apps/frontend/src/features/calls/components/call.page.view.tsx
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
+-import { useAuth } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { parseAsStringLiteral, useQueryState } from 'nuqs';
+ import { useTranslations } from 'next-intl';
+ import {
+@@ -32,7 +32,7 @@ const TRIGGER_CLASSES =
+ export default function CallPageView() {
+   const t = useTranslations('calls.myDay');
+   const { isLoaded, hasOrg } = useOrgRole();
+-  const { isLoaded: authLoaded, userId, orgId } = useAuth();
++  const { isLoaded: authLoaded, userId, orgId } = useSession();
+   const storageKey =
+     authLoaded && userId
+       ? `${STORAGE_PREFIX}:${userId}:${orgId ?? 'personal'}`
+
+diff --git a/apps/frontend/src/features/calls/components/campaigns/unlock-campaigns-button.tsx b/apps/frontend/src/features/calls/components/campaigns/unlock-campaigns-button.tsx
+--- a/apps/frontend/src/features/calls/components/campaigns/unlock-campaigns-button.tsx
++++ b/apps/frontend/src/features/calls/components/campaigns/unlock-campaigns-button.tsx
+@@ -1,7 +1,8 @@
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
+-import { CreateOrganization, useOrganizationList } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
++import { useOrganizations } from '@ringee/frontend-shared/hooks/use-organizations';
+ import { useTranslations } from 'next-intl';
+ import {
+   ArrowRight,
+@@ -51,7 +52,6 @@ export function UnlockCampaignsContent({
+   hasSubscription,
+   organizations,
+   switchingTo,
+-  onCreateOrganization,
+   onSwitch
+ }: {
+   loading: boolean;
+@@ -62,7 +62,6 @@ export function UnlockCampaignsContent({
+   hasSubscription: boolean;
+   organizations: UnlockOrganization[];
+   switchingTo: string | null;
+-  onCreateOrganization: () => void;
+   onSwitch: (organizationId: string) => void;
+ }) {
+   const t = useTranslations('calls.myDay.campaigns.unlock');
+@@ -103,14 +102,9 @@ export function UnlockCampaignsContent({
+             {t('readyDescription')}
+           </p>
+         </div>
+-        <Button
+-          size='lg'
+-          className='w-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 font-semibold text-white'
+-          onClick={onCreateOrganization}
+-        >
+-          <Plus />
+-          {tSwitcher('createOrganization')}
+-        </Button>
++        <p className='text-muted-foreground text-sm'>
++          {t('contactAdmin')}
++        </p>
+       </div>
+     );
+   }
+@@ -177,11 +171,9 @@ export function UnlockCampaignsButton({ className }: { className?: string }) {
+   const tTabs = useTranslations('calls.myDay.tabs');
+   const tSwitcher = useTranslations('organizations.switcher');
+   const api = useApi();
+-  const { isLoaded, userMemberships, setActive } = useOrganizationList({
+-    userMemberships: { infinite: true }
+-  });
++  const { isLoaded, organizations } = useOrganizations();
++  const { setActiveOrganization } = useSession();
+   const [open, setOpen] = useState(false);
+-  const [createOpen, setCreateOpen] = useState(false);
+   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
+   // `null` = not known yet. A read that fails stays unknown: it must never
+   // pass for "no plan" and offer a second checkout to someone already paying.
+@@ -212,7 +204,7 @@ export function UnlockCampaignsButton({ className }: { className?: string }) {
+   const switchTo = async (organizationId: string) => {
+     setSwitchingTo(organizationId);
+     try {
+-      await setActive?.({ organization: organizationId });
++      await setActiveOrganization(organizationId);
+       // A full load, as the workspace switcher does: every workspace-scoped
+       // store starts over in the organization.
+       window.location.assign(CAMPAIGNS_TAB_URL);
+@@ -245,7 +237,7 @@ export function UnlockCampaignsButton({ className }: { className?: string }) {
+         >
+           <UnlockCampaignsContent
+             loading={
+-              hasSubscription === null || !isLoaded || userMemberships.isLoading
++              hasSubscription === null || !isLoaded
+             }
+             failed={subscriptionFailed}
+             onRetry={() => {
+@@ -253,31 +245,18 @@ export function UnlockCampaignsButton({ className }: { className?: string }) {
+               setSubscriptionAttempt((attempt) => attempt + 1);
+             }}
+             hasSubscription={hasSubscription === true}
+-            organizations={(userMemberships.data ?? []).map(
+-              ({ organization }) => ({
+-                id: organization.id,
+-                name: organization.name,
+-                imageUrl: organization.imageUrl || null
+-              })
+-            )}
++            organizations={organizations.map((org) => ({
++              id: org.id,
++              name: org.name,
++              imageUrl: org.imageUrl || null
++            }))}
+             switchingTo={switchingTo}
+-            onCreateOrganization={() => {
+-              setOpen(false);
+-              setCreateOpen(true);
+-            }}
+             onSwitch={(organizationId) => void switchTo(organizationId)}
+           />
+         </PopoverContent>
+       </Popover>
+ 
+-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+-        <DialogContent className='border-none bg-transparent p-0 shadow-none sm:max-w-[425px]'>
+-          <DialogHeader className='sr-only'>
+-            <DialogTitle>{tSwitcher('createOrganization')}</DialogTitle>
+-          </DialogHeader>
+-          <CreateOrganization afterCreateOrganizationUrl={CAMPAIGNS_TAB_URL} />
+-        </DialogContent>
+-      </Dialog>
++
+     </>
+   );
+ }
+
+diff --git a/apps/frontend/src/features/calls/hooks/use.call.campaigns.ts b/apps/frontend/src/features/calls/hooks/use.call.campaigns.ts
+--- a/apps/frontend/src/features/calls/hooks/use.call.campaigns.ts
++++ b/apps/frontend/src/features/calls/hooks/use.call.campaigns.ts
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import { useCallback, useEffect, useRef, useState } from 'react';
+-import { useAuth } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useApi } from '@ringee/frontend-shared/hooks/use.api';
+ import type {
+   Campaign,
+@@ -24,7 +24,7 @@ const STORAGE_PREFIX = 'ringee:call-campaign';
+  */
+ export function useCallCampaigns() {
+   const api = useApi();
+-  const { isLoaded, userId, orgId } = useAuth();
++  const { isLoaded, userId, orgId } = useSession();
+   const storageKey =
+     isLoaded && userId && orgId ? `${STORAGE_PREFIX}:${userId}:${orgId}` : null;
+   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+
+diff --git a/apps/frontend/src/features/calls/hooks/use.call.list.ts b/apps/frontend/src/features/calls/hooks/use.call.list.ts
+--- a/apps/frontend/src/features/calls/hooks/use.call.list.ts
++++ b/apps/frontend/src/features/calls/hooks/use.call.list.ts
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import { useCallback, useEffect, useRef, useState } from 'react';
+-import { useAuth } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useTranslations } from 'next-intl';
+ import { toast } from 'sonner';
+ import { useApi } from '@ringee/frontend-shared/hooks/use.api';
+@@ -19,7 +19,7 @@ const STORAGE_PREFIX = 'ringee:call-list';
+ export function useCallList() {
+   const api = useApi();
+   const t = useTranslations('calls.myDay.list');
+-  const { isLoaded, userId, orgId } = useAuth();
++  const { isLoaded, userId, orgId } = useSession();
+   const storageKey =
+     isLoaded && userId
+       ? `${STORAGE_PREFIX}:${userId}:${orgId ?? 'personal'}`
+
+diff --git a/apps/frontend/src/features/calls/hooks/use.call.ts b/apps/frontend/src/features/calls/hooks/use.call.ts
+--- a/apps/frontend/src/features/calls/hooks/use.call.ts
++++ b/apps/frontend/src/features/calls/hooks/use.call.ts
+@@ -12,7 +12,7 @@ import {
+ } from '@ringee/dialer-core';
+ import { useCallStore } from '../store/call.store';
+ import { useTelnyxStore } from '../store/telnyx.store';
+-import { useAuth } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useNumbersStore } from '../store/number.selector.store';
+ import { useAnalytics } from '@ringee/frontend-shared/hooks/use.analytics';
+ import { useApi } from '@ringee/frontend-shared/hooks/use.api';
+@@ -36,7 +36,7 @@ export function useCall(call?: Call | null) {
+     recordingId,
+     setRecordingId
+   } = useCallStore();
+-  const { userId, orgId } = useAuth();
++  const { userId, orgId } = useSession();
+   const api = useApi();
+   const { completeStep: completeOnboardingStep } = useOnboardingComplete();
+ 
+
+diff --git a/apps/frontend/src/features/calls/hooks/use.telnyx.tsx b/apps/frontend/src/features/calls/hooks/use.telnyx.tsx
+--- a/apps/frontend/src/features/calls/hooks/use.telnyx.tsx
++++ b/apps/frontend/src/features/calls/hooks/use.telnyx.tsx
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import { useEffect } from 'react';
+-import { useAuth } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useApi } from '@ringee/frontend-shared/hooks/use.api';
+ import type { INotification } from '@telnyx/webrtc';
+ import { createTelnyxClient, TELNYX_EVENTS } from '@ringee/dialer-core';
+@@ -25,7 +25,7 @@ type BrowserEndpoint =
+ 
+ export function useTelnyxClient() {
+   const api = useApi();
+-  const { orgId, userId } = useAuth();
++  const { orgId, userId } = useSession();
+ 
+   useEffect(() => {
+     // Only an organization routes calls through server-dialed legs.
+
+diff --git a/apps/frontend/src/features/campaigns/components/campaign-members-tab.tsx b/apps/frontend/src/features/campaigns/components/campaign-members-tab.tsx
+--- a/apps/frontend/src/features/campaigns/components/campaign-members-tab.tsx
++++ b/apps/frontend/src/features/campaigns/components/campaign-members-tab.tsx
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
+-import { useOrganization } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useApi } from '@ringee/frontend-shared/hooks/use.api';
+ import { Button } from '@ringee/frontend-shared/components/ui/button';
+ import {
+@@ -52,7 +52,6 @@ interface CampaignMember {
+ }
+ 
+ interface OrgMember {
+-  clerkUserId: string;
+   dbUserId: string;
+   name: string;
+   email: string;
+@@ -75,7 +74,7 @@ export function CampaignMembersTab({
+ }: Props) {
+   const api = useApi();
+   const t = useTranslations('campaigns.members');
+-  const { organization, isLoaded: isOrgLoaded } = useOrganization();
++  const { organization, isLoaded: isOrgLoaded } = useSession();
+ 
+   const [members, setMembers] = useState<CampaignMember[]>([]);
+   const [orgMembers, setOrgMembers] = useState<OrgMember[]>([]);
+@@ -114,35 +113,20 @@ export function CampaignMembersTab({
+   async function loadOrgMembers() {
+     if (!organization) return;
+     try {
+-      const res = await organization.getMemberships();
+-      const clerkUserIds = res.data
+-        .map((m) => m.publicUserData?.userId)
+-        .filter(Boolean) as string[];
+-
+-      if (clerkUserIds.length === 0) {
+-        setOrgMembers([]);
+-        return;
+-      }
+-
+-      const dbUserMap = await api.get<{ clerkId: string; id: string }[]>(
+-        `/user/by-clerk-ids?ids=${clerkUserIds.join(',')}`
+-      );
+-      const clerkToDbId = new Map(dbUserMap.map((u) => [u.clerkId, u.id]));
++      const rows = await api.get<
++        Array<{
++          id: string;
++          name: string | null;
++          email: string | null;
++        }>
++      >(`/organizations/${organization.id}/members`);
+ 
+       setOrgMembers(
+-        res.data
+-          .map((m) => {
+-            const clerkUserId = m.publicUserData?.userId || '';
+-            return {
+-              clerkUserId,
+-              dbUserId: clerkToDbId.get(clerkUserId) || '',
+-              name:
+-                `${m.publicUserData?.firstName || ''} ${m.publicUserData?.lastName || ''}`.trim() ||
+-                'Unknown',
+-              email: m.publicUserData?.identifier || ''
+-            };
+-          })
+-          .filter((m) => m.dbUserId)
++        (Array.isArray(rows) ? rows : []).map((m) => ({
++          dbUserId: m.id,
++          name: m.name ?? m.email ?? 'Unknown',
++          email: m.email ?? ''
++        }))
+       );
+     } catch {
+       // handled
+
+diff --git a/apps/frontend/src/features/credit/components/credit.popover.tsx b/apps/frontend/src/features/credit/components/credit.popover.tsx
+--- a/apps/frontend/src/features/credit/components/credit.popover.tsx
++++ b/apps/frontend/src/features/credit/components/credit.popover.tsx
+@@ -20,7 +20,7 @@ import { useRouter } from 'next/navigation';
+ import { Skeleton } from '@ringee/frontend-shared/components/ui/skeleton';
+ import { useCongrats } from '@ringee/frontend-shared/hooks/use.congrats';
+ import { useCreditStore } from '@/features/credit/store/credit.store';
+-import { useAuth } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useOnboardingComplete } from '@/features/onboarding/hooks/use.onboarding.complete';
+ import { useTranslations } from 'next-intl';
+ import { AmountStep } from './recharge/amount-step';
+@@ -136,7 +136,7 @@ export function CreditPopover({
+   useMock?: boolean;
+ }) {
+   const t = useTranslations('billing.credits.popover');
+-  const auth = useAuth();
++  const auth = useSession();
+   const api = useApi();
+   const router = useRouter();
+ 
+
+diff --git a/apps/frontend/src/features/credit/components/funding/elements-checkout-panel.tsx b/apps/frontend/src/features/credit/components/funding/elements-checkout-panel.tsx
+--- a/apps/frontend/src/features/credit/components/funding/elements-checkout-panel.tsx
++++ b/apps/frontend/src/features/credit/components/funding/elements-checkout-panel.tsx
+@@ -17,7 +17,7 @@ import {
+   BadgeCheck
+ } from 'lucide-react';
+ import { useTranslations } from 'next-intl';
+-import { useUser } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useTheme } from 'next-themes';
+ import { cn } from '@ringee/frontend-shared/lib/utils';
+ import { Button } from '@ringee/frontend-shared/components/ui/button';
+@@ -116,7 +116,7 @@ export function ElementsCheckoutPanel({
+   onBusyChange
+ }: Props) {
+   const t = useTranslations('billing.credits.popover');
+-  const { user } = useUser();
++  const { user } = useSession();
+   const accountEmail = user?.primaryEmailAddress?.emailAddress ?? '';
+   const { resolvedTheme } = useTheme();
+   // Repaint the Stripe fields to match the app theme. Updating `options.appearance`
+
+diff --git a/apps/frontend/src/features/credit/components/funding/monthly-setup-panel.tsx b/apps/frontend/src/features/credit/components/funding/monthly-setup-panel.tsx
+--- a/apps/frontend/src/features/credit/components/funding/monthly-setup-panel.tsx
++++ b/apps/frontend/src/features/credit/components/funding/monthly-setup-panel.tsx
+@@ -3,7 +3,7 @@
+ import { useCallback } from 'react';
+ import { CalendarSync, Clock, CheckCircle2, Loader2 } from 'lucide-react';
+ import { useTranslations } from 'next-intl';
+-import { useUser } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { cn } from '@ringee/frontend-shared/lib/utils';
+ import { Button } from '@ringee/frontend-shared/components/ui/button';
+ import { useApi } from '@ringee/frontend-shared/hooks/use.api';
+@@ -39,7 +39,7 @@ export function MonthlySetupPanel({
+ }: Props) {
+   const t = useTranslations('billing.credits.popover');
+   const api = useApi();
+-  const { user } = useUser();
++  const { user } = useSession();
+   const fetchMonthlyFund = useCreditStore((s) => s.fetchMonthlyFund);
+   const fetchAutoReloadSettings = useCreditStore(
+     (s) => s.fetchAutoReloadSettings
+
+diff --git a/apps/frontend/src/features/credit/components/funding/one-time-checkout.tsx b/apps/frontend/src/features/credit/components/funding/one-time-checkout.tsx
+--- a/apps/frontend/src/features/credit/components/funding/one-time-checkout.tsx
++++ b/apps/frontend/src/features/credit/components/funding/one-time-checkout.tsx
+@@ -9,7 +9,7 @@ import {
+   Loader2
+ } from 'lucide-react';
+ import { useTranslations } from 'next-intl';
+-import { useUser } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { cn } from '@ringee/frontend-shared/lib/utils';
+ import { Button } from '@ringee/frontend-shared/components/ui/button';
+ import { Input } from '@ringee/frontend-shared/components/ui/input';
+@@ -67,7 +67,7 @@ export function OneTimeCheckout({
+ }: Props) {
+   const t = useTranslations('billing.credits.popover');
+   const api = useApi();
+-  const { user } = useUser();
++  const { user } = useSession();
+   const fetchPaymentMethod = useCreditStore((s) => s.fetchPaymentMethod);
+   const liveBalance = useCreditStore((s) => s.balance);
+   const { reflected, start } = useBalanceReconcile();
+
+diff --git a/apps/frontend/src/features/dashboard/components/dashboard-filters.tsx b/apps/frontend/src/features/dashboard/components/dashboard-filters.tsx
+--- a/apps/frontend/src/features/dashboard/components/dashboard-filters.tsx
++++ b/apps/frontend/src/features/dashboard/components/dashboard-filters.tsx
+@@ -27,7 +27,7 @@ import { Calendar } from '@ringee/frontend-shared/components/ui/calendar';
+ import { useDashboardFilters } from '../lib/filters-context';
+ import type { DashboardRangeKey } from '../lib/types';
+ import { useApi } from '@ringee/frontend-shared/hooks/use.api';
+-import { useOrganization } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useOrgRole } from '@ringee/frontend-shared/hooks/use-org-role';
+ import { Check, ChevronsUpDown, Calendar as CalendarIcon } from 'lucide-react';
+ import { cn } from '@ringee/frontend-shared/lib/utils';
+@@ -236,7 +236,7 @@ function MemberSelectorCompact({
+   onChange: (id: string | null) => void;
+ }) {
+   const t = useTranslations('dashboard.filters');
+-  const { organization } = useOrganization();
++  const { organization } = useSession();
+   const api = useApi();
+   const [open, setOpen] = React.useState(false);
+   const [members, setMembers] = React.useState<{ id: string; name: string }[]>(
+
+diff --git a/apps/frontend/src/features/dialer/hooks/use-dialer-call.ts b/apps/frontend/src/features/dialer/hooks/use-dialer-call.ts
+--- a/apps/frontend/src/features/dialer/hooks/use-dialer-call.ts
++++ b/apps/frontend/src/features/dialer/hooks/use-dialer-call.ts
+@@ -2,7 +2,7 @@
+ 
+ import { useCallback, useEffect, useRef, useState } from 'react';
+ import type { Call, INotification } from '@telnyx/webrtc';
+-import { useAuth } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import {
+   TELNYX_EVENTS,
+   buildCallHeaders,
+@@ -123,7 +123,7 @@ function settleEndedLeg(abandon: AbandonDial, ended?: Call) {
+  * the leg through {@link useDialerCall}.
+  */
+ export function useDialerCallEngine() {
+-  const { userId, orgId } = useAuth();
++  const { userId, orgId } = useSession();
+   const t = useTranslations('calls.dialer');
+   const client = useTelnyxStore((s) => s.client);
+   const abandon = useAbandonDial();
+
+diff --git a/apps/frontend/src/features/external-carriers/components/external-carriers-panel.tsx b/apps/frontend/src/features/external-carriers/components/external-carriers-panel.tsx
+--- a/apps/frontend/src/features/external-carriers/components/external-carriers-panel.tsx
++++ b/apps/frontend/src/features/external-carriers/components/external-carriers-panel.tsx
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import { useState } from 'react';
+-import { useOrganization } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useFormatter, useTranslations } from 'next-intl';
+ import {
+   ArrowLeft,
+@@ -43,7 +43,7 @@ type Removal = {
+ };
+ 
+ export function ExternalCarriersPanel() {
+-  const { organization } = useOrganization();
++  const { organization } = useSession();
+   const { isLoaded, isOrgAdmin } = useOrgRole();
+   const t = useTranslations('settings.byoc');
+   if (!isLoaded) return <Skeleton className='h-32 w-full' />;
+
+diff --git a/apps/frontend/src/features/inbox/components/assign-thread-menu.tsx b/apps/frontend/src/features/inbox/components/assign-thread-menu.tsx
+--- a/apps/frontend/src/features/inbox/components/assign-thread-menu.tsx
++++ b/apps/frontend/src/features/inbox/components/assign-thread-menu.tsx
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
+-import { useOrganization } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import {
+   DropdownMenu,
+   DropdownMenuContent,
+@@ -34,7 +34,7 @@ interface Props {
+ export function AssignThreadMenu({ thread, onChanged }: Props) {
+   const t = useTranslations('inbox.assignment');
+   const api = useApi();
+-  const { organization } = useOrganization();
++  const { organization } = useSession();
+   const [members, setMembers] = useState<Member[]>([]);
+   const actions = useThreadActions(onChanged);
+ 
+
+diff --git a/apps/frontend/src/features/infra/components/infra-canvas.tsx b/apps/frontend/src/features/infra/components/infra-canvas.tsx
+--- a/apps/frontend/src/features/infra/components/infra-canvas.tsx
++++ b/apps/frontend/src/features/infra/components/infra-canvas.tsx
+@@ -19,7 +19,7 @@ import {
+ import '@xyflow/react/dist/style.css';
+ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+ import { toast } from 'sonner';
+-import { useAuth } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useOrgRole } from '@ringee/frontend-shared/hooks/use-org-role';
+ import {
+   AlertDialog,
+@@ -151,7 +151,7 @@ export function InfraCanvas() {
+   const api = useInfraApi();
+   const reduce = useReducedMotion();
+   const { isOrgAdmin, hasOrg } = useOrgRole();
+-  const { orgId, isLoaded: authLoaded } = useAuth();
++  const { orgId, isLoaded: authLoaded } = useSession();
+   const canMutate = !hasOrg || isOrgAdmin;
+ 
+   const { screenToFlowPosition, fitView } = useReactFlow();
+
+diff --git a/apps/frontend/src/features/infra/components/infra-context-switcher.tsx b/apps/frontend/src/features/infra/components/infra-context-switcher.tsx
+--- a/apps/frontend/src/features/infra/components/infra-context-switcher.tsx
++++ b/apps/frontend/src/features/infra/components/infra-context-switcher.tsx
+@@ -1,7 +1,8 @@
+ 'use client';
+ 
+ import { useState } from 'react';
+-import { useOrganization, useOrganizationList, useUser } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
++import { useOrganizations } from '@ringee/frontend-shared/hooks/use-organizations';
+ import {
+   DropdownMenu,
+   DropdownMenuContent,
+@@ -42,13 +43,9 @@ function initials(name: string): string {
+  * canvas reacts to the active-org change and reloads in place.
+  */
+ export function InfraContextSwitcher() {
+-  const { organization, isLoaded: orgLoaded } = useOrganization();
+-  const { user } = useUser();
+-  const {
+-    userMemberships,
+-    setActive,
+-    isLoaded: listLoaded
+-  } = useOrganizationList({ userMemberships: { infinite: true } });
++  const { organization, isLoaded: orgLoaded, setActiveOrganization } = useSession();
++  const { user } = useSession();
++  const { organizations, isLoaded: listLoaded } = useOrganizations();
+   const setContextSwitching = useInfraStore((s) => s.setContextSwitching);
+ 
+   const [pendingId, setPendingId] = useState<string | null | undefined>(
+@@ -67,7 +64,7 @@ export function InfraContextSwitcher() {
+     );
+   }
+ 
+-  const memberships = userMemberships?.data ?? [];
++  const memberships = organizations;
+   const activeOrgId = organization?.id ?? null;
+   const switching = pendingId !== undefined;
+ 
+@@ -76,11 +73,11 @@ export function InfraContextSwitcher() {
+   const activeKind = organization ? 'Organization' : 'Personal';
+ 
+   const handleSelect = async (targetOrgId: string | null) => {
+-    if (!setActive || targetOrgId === activeOrgId) return;
++    if (targetOrgId === activeOrgId) return;
+     setPendingId(targetOrgId);
+     setContextSwitching(true);
+     try {
+-      await setActive({ organization: targetOrgId });
++      await setActiveOrganization(targetOrgId);
+       // The canvas clears `contextSwitching` once it has reloaded the new
+       // context (it keys its fetch on the active org id).
+     } catch {
+@@ -144,14 +141,14 @@ export function InfraContextSwitcher() {
+ 
+         {memberships.map((m) => (
+           <ContextItem
+-            key={m.organization.id}
+-            name={m.organization.name}
++            key={m.id}
++            name={m.name}
+             kind='Organization'
+-            image={m.organization.imageUrl ?? null}
++            image={m.imageUrl ?? null}
+             icon={<IconUsersGroup className='size-4' />}
+-            active={activeOrgId === m.organization.id}
+-            pending={pendingId === m.organization.id}
+-            onSelect={() => handleSelect(m.organization.id)}
++            active={activeOrgId === m.id}
++            pending={pendingId === m.id}
++            onSelect={() => handleSelect(m.id)}
+           />
+         ))}
+       </DropdownMenuContent>
+
+diff --git a/apps/frontend/src/features/infra/components/infra-topbar.tsx b/apps/frontend/src/features/infra/components/infra-topbar.tsx
+--- a/apps/frontend/src/features/infra/components/infra-topbar.tsx
++++ b/apps/frontend/src/features/infra/components/infra-topbar.tsx
+@@ -2,7 +2,8 @@
+ 
+ import Link from 'next/link';
+ import { usePathname } from 'next/navigation';
+-import { UserButton } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider';
++import { UserNav } from '@/components/layout/user-nav';
+ import { Button } from '@ringee/frontend-shared/components/ui/button';
+ import {
+   DropdownMenu,
+@@ -139,7 +140,7 @@ export function InfraTopbar() {
+ 
+         <span className='bg-border/70 hidden h-6 w-px sm:block' />
+ 
+-        <UserButton />
++        <UserNav />
+       </div>
+     </header>
+   );
+
+diff --git a/apps/frontend/src/features/infra/components/usage/infra-usage.tsx b/apps/frontend/src/features/infra/components/usage/infra-usage.tsx
+--- a/apps/frontend/src/features/infra/components/usage/infra-usage.tsx
++++ b/apps/frontend/src/features/infra/components/usage/infra-usage.tsx
+@@ -2,7 +2,7 @@
+ 
+ import { useCallback, useEffect, useMemo, useState } from 'react';
+ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+-import { useAuth } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useOrgRole } from '@ringee/frontend-shared/hooks/use-org-role';
+ import { cn } from '@ringee/frontend-shared/lib/utils';
+ import { IconLoader2, IconChartHistogram } from '@tabler/icons-react';
+@@ -48,7 +48,7 @@ export function InfraUsage() {
+   const api = useInfraApi();
+   const reduce = useReducedMotion();
+   const { hasOrg } = useOrgRole();
+-  const { orgId, isLoaded: authLoaded } = useAuth();
++  const { orgId, isLoaded: authLoaded } = useSession();
+   const contextSwitching = useInfraStore((s) => s.contextSwitching);
+   const setContextSwitching = useInfraStore((s) => s.setContextSwitching);
+ 
+
+diff --git a/apps/frontend/src/features/infra/lib/use-entities.ts b/apps/frontend/src/features/infra/lib/use-entities.ts
+--- a/apps/frontend/src/features/infra/lib/use-entities.ts
++++ b/apps/frontend/src/features/infra/lib/use-entities.ts
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
+-import { useAuth } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useInfraApi } from '../api';
+ import type { InfraLinkableItem, InfrastructureResourceType } from '../types';
+ 
+@@ -13,7 +13,7 @@ import type { InfraLinkableItem, InfrastructureResourceType } from '../types';
+  */
+ export function useEntities(open: boolean) {
+   const api = useInfraApi();
+-  const { orgId } = useAuth();
++  const { orgId } = useSession();
+   const [entities, setEntities] = useState<InfraLinkableItem[]>([]);
+   const [loading, setLoading] = useState(false);
+ 
+
+diff --git a/apps/frontend/src/features/integrations/components/attio-dialer.tsx b/apps/frontend/src/features/integrations/components/attio-dialer.tsx
+--- a/apps/frontend/src/features/integrations/components/attio-dialer.tsx
++++ b/apps/frontend/src/features/integrations/components/attio-dialer.tsx
+@@ -7,7 +7,7 @@ import {
+   AvatarFallback
+ } from '@ringee/frontend-shared/components/ui/avatar';
+ import { useTelnyxStore } from '@/features/calls/store/telnyx.store';
+-import { useAuth } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { Loader2, Phone, AlertCircle, CheckCircle2 } from 'lucide-react';
+ import { useSearchParams } from 'next/navigation';
+ import { useCallback, useEffect, useRef, useState } from 'react';
+@@ -35,7 +35,7 @@ export function AttioDialer() {
+   const contactName = searchParams.get('name');
+ 
+   const { client, status: telnyxStatus } = useTelnyxStore();
+-  const { userId, orgId } = useAuth();
++  const { userId, orgId } = useSession();
+   const [dialerState, setDialerState] = useState<DialerState>('ready');
+   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+   const [contactProfile, setContactProfile] =
+
+diff --git a/apps/frontend/src/features/integrations/components/odoo-connect-dialog.tsx b/apps/frontend/src/features/integrations/components/odoo-connect-dialog.tsx
+--- a/apps/frontend/src/features/integrations/components/odoo-connect-dialog.tsx
++++ b/apps/frontend/src/features/integrations/components/odoo-connect-dialog.tsx
+@@ -23,7 +23,7 @@ import {
+ } from '@ringee/frontend-shared/components/ui/radio-group';
+ import { cn } from '@ringee/frontend-shared/lib/utils';
+ import { useApi } from '@ringee/frontend-shared/hooks/use.api';
+-import { useOrganization } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { AlertCircle, Plus, User, Users } from 'lucide-react';
+ import { useMemo, useState } from 'react';
+ import { toast } from 'sonner';
+@@ -64,7 +64,7 @@ export function OdooConnectDialog({
+   onConnected
+ }: Props) {
+   const api = useApi();
+-  const { organization } = useOrganization();
++  const { organization } = useSession();
+   const meta = PROVIDER_META[provider];
+   const loginRequired = provider === 'odoo_14_18';
+   const t = useTranslations('integrations.odoo');
+
+diff --git a/apps/frontend/src/features/integrations/components/provider-catalog.tsx b/apps/frontend/src/features/integrations/components/provider-catalog.tsx
+--- a/apps/frontend/src/features/integrations/components/provider-catalog.tsx
++++ b/apps/frontend/src/features/integrations/components/provider-catalog.tsx
+@@ -17,7 +17,7 @@ import {
+ } from '@ringee/frontend-shared/components/ui/radio-group';
+ import { Label } from '@ringee/frontend-shared/components/ui/label';
+ import { cn } from '@ringee/frontend-shared/lib/utils';
+-import { useOrganization } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { Plus, Sparkles, Users, User } from 'lucide-react';
+ import Image from 'next/image';
+ import { useState } from 'react';
+@@ -140,7 +140,7 @@ function ConnectButton({
+   ) => void;
+   alreadyConnected: boolean;
+ }) {
+-  const { organization } = useOrganization();
++  const { organization } = useSession();
+   const [open, setOpen] = useState(false);
+   const [scope, setScope] = useState<'personal' | 'organization'>(
+     organization ? 'organization' : 'personal'
+
+diff --git a/apps/frontend/src/features/number-rotation/hooks/use-number-rotation.ts b/apps/frontend/src/features/number-rotation/hooks/use-number-rotation.ts
+--- a/apps/frontend/src/features/number-rotation/hooks/use-number-rotation.ts
++++ b/apps/frontend/src/features/number-rotation/hooks/use-number-rotation.ts
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import { useCallback, useEffect, useRef, useState } from 'react';
+-import { useAuth } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useApi } from '@ringee/frontend-shared/hooks/use.api';
+ import type {
+   NumberReportRow,
+@@ -20,7 +20,7 @@ const DEFAULT_SETTINGS: RotationSettings = {
+ /** Keeps settings, pool and reports together for the active workspace. */
+ export function useNumberRotation() {
+   const api = useApi();
+-  const { userId, orgId } = useAuth();
++  const { userId, orgId } = useSession();
+   const workspaceKey = `${userId ?? ''}:${orgId ?? ''}`;
+   const [snapshot, setSnapshot] = useState<{
+     key: string;
+
+diff --git a/apps/frontend/src/features/number-rotation/hooks/use-rotation-enabled.ts b/apps/frontend/src/features/number-rotation/hooks/use-rotation-enabled.ts
+--- a/apps/frontend/src/features/number-rotation/hooks/use-rotation-enabled.ts
++++ b/apps/frontend/src/features/number-rotation/hooks/use-rotation-enabled.ts
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
+-import { useAuth } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useApi } from '@ringee/frontend-shared/hooks/use.api';
+ 
+ export const ROTATION_SETTINGS_CHANGED = 'ringee:rotation-settings-changed';
+@@ -9,7 +9,7 @@ export const ROTATION_SETTINGS_CHANGED = 'ringee:rotation-settings-changed';
+ /** Shared dialer/header signal, refreshed after saves and workspace changes. */
+ export function useRotationEnabled(): boolean | null {
+   const api = useApi();
+-  const { userId, orgId } = useAuth();
++  const { userId, orgId } = useSession();
+   const workspaceKey = `${userId ?? ''}:${orgId ?? ''}`;
+   const [snapshot, setSnapshot] = useState<{
+     key: string;
+
+diff --git a/apps/frontend/src/features/overview/components/dashboard-header.tsx b/apps/frontend/src/features/overview/components/dashboard-header.tsx
+--- a/apps/frontend/src/features/overview/components/dashboard-header.tsx
++++ b/apps/frontend/src/features/overview/components/dashboard-header.tsx
+@@ -4,13 +4,13 @@ import * as React from 'react';
+ import { MemberSelector } from './member-selector';
+ import { useOrgRole } from '@ringee/frontend-shared/hooks/use-org-role';
+ import { useSearchParams, useRouter } from 'next/navigation';
+-import { useOrganization } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useTranslations } from 'next-intl';
+ 
+ export function DashboardHeader() {
+   const t = useTranslations('dashboard.overview.header');
+   const { isOrgAdmin, hasOrg, isLoaded } = useOrgRole();
+-  const { organization } = useOrganization();
++  const { organization } = useSession();
+   const searchParams = useSearchParams();
+   const router = useRouter();
+ 
+
+diff --git a/apps/frontend/src/features/overview/components/member-selector.tsx b/apps/frontend/src/features/overview/components/member-selector.tsx
+--- a/apps/frontend/src/features/overview/components/member-selector.tsx
++++ b/apps/frontend/src/features/overview/components/member-selector.tsx
+@@ -2,7 +2,7 @@
+ 
+ import * as React from 'react';
+ import { Check, ChevronsUpDown, Users } from 'lucide-react';
+-import { useOrganization } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import {
+   Command,
+   CommandEmpty,
+@@ -41,7 +41,7 @@ export function MemberSelector({ value, onChange }: MemberSelectorProps) {
+   const [members, setMembers] = React.useState<Member[]>([]);
+   const [loading, setLoading] = React.useState(true);
+   const [, setError] = React.useState(false);
+-  const { organization, isLoaded: isOrgLoaded } = useOrganization();
++  const { organization, isLoaded: isOrgLoaded } = useSession();
+   const { isOrgAdmin, hasOrg, isLoaded: isRoleLoaded } = useOrgRole();
+   const api = useApi();
+ 
+
+diff --git a/apps/frontend/src/features/profile/components/profile-view-page.tsx b/apps/frontend/src/features/profile/components/profile-view-page.tsx
+--- a/apps/frontend/src/features/profile/components/profile-view-page.tsx
++++ b/apps/frontend/src/features/profile/components/profile-view-page.tsx
+@@ -1,9 +1,64 @@
+-import { UserProfile } from '@clerk/nextjs';
++'use client';
+ 
++import { useSession } from '@ringee/frontend-shared/auth/session-provider';
++import { UserAvatarProfile } from '@ringee/frontend-shared/components/user-avatar-profile';
++import { Button } from '@ringee/frontend-shared/components/ui/button';
++import { useRouter } from 'next/navigation';
++
++/**
++ * Profile page: shows the signed-in user's identity (from the verified
++ * session principal) with sign-out. Profile edits are staff-managed.
++ */
+ export default function ProfileViewPage() {
++  const { isLoaded, user, signOut } = useSession();
++  const router = useRouter();
++
++  if (!isLoaded) {
++    return (
++      <div className='flex w-full flex-col p-4'>
++        <p className='text-muted-foreground text-sm'>Loading…</p>
++      </div>
++    );
++  }
++
++  if (!user) {
++    router.replace('/auth/sign-in');
++    return null;
++  }
++
+   return (
+-    <div className='flex w-full flex-col p-4'>
+-      <UserProfile />
++    <div className='flex w-full flex-col gap-6 p-4'>
++      <div>
++        <h1 className='text-2xl font-semibold tracking-tight'>Profile</h1>
++        <p className='text-muted-foreground text-sm'>
++          Your account details, verified by the session.
++        </p>
++      </div>
++
++      <div className='border-border bg-card max-w-md rounded-2xl border p-6 shadow-sm'>
++        <UserAvatarProfile showInfo user={user} className='h-12 w-12' />
++
++        <dl className='mt-6 space-y-3 text-sm'>
++          <div className='flex justify-between gap-4'>
++            <dt className='text-muted-foreground'>Name</dt>
++            <dd className='font-medium'>{user.name}</dd>
++          </div>
++          <div className='flex justify-between gap-4'>
++            <dt className='text-muted-foreground'>Email</dt>
++            <dd className='font-medium'>{user.email}</dd>
++          </div>
++        </dl>
++
++        <Button
++          variant='outline'
++          className='mt-6'
++          onClick={() => {
++            void signOut().then(() => router.replace('/auth/sign-in'));
++          }}
++        >
++          Sign out
++        </Button>
++      </div>
+     </div>
+   );
+ }
+
+diff --git a/apps/frontend/src/features/security/components/account-lockdown-provider.tsx b/apps/frontend/src/features/security/components/account-lockdown-provider.tsx
+--- a/apps/frontend/src/features/security/components/account-lockdown-provider.tsx
++++ b/apps/frontend/src/features/security/components/account-lockdown-provider.tsx
+@@ -7,7 +7,7 @@ import {
+   useState,
+   type ReactNode
+ } from 'react';
+-import { useClerk } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { toast } from 'sonner';
+ import { AlertTriangle, PhoneOff } from 'lucide-react';
+ import { hangupCall, useCallStore } from '@ringee/dialer-core';
+@@ -51,7 +51,7 @@ const SIGN_OUT_DELAY_MS = 6_000;
+  * inbound call is still won by claiming it server-side.
+  */
+ export function AccountLockdownProvider({ children }: { children: ReactNode }) {
+-  const { signOut } = useClerk();
++  const { signOut } = useSession();
+   const [lockdown, setLockdown] = useState<{
+     message: string;
+     reason: string;
+
+diff --git a/apps/frontend/src/features/security/components/concurrent-call-dialog.tsx b/apps/frontend/src/features/security/components/concurrent-call-dialog.tsx
+--- a/apps/frontend/src/features/security/components/concurrent-call-dialog.tsx
++++ b/apps/frontend/src/features/security/components/concurrent-call-dialog.tsx
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import { useEffect, useState } from 'react';
+-import { useOrganization } from '@clerk/nextjs';
++import { useSession } from '@ringee/frontend-shared/auth/session-provider'
+ import { useTranslations } from 'next-intl';
+ import { PhoneOff, Sparkles, Users } from 'lucide-react';
+ import {
+@@ -32,7 +32,7 @@ export function ConcurrentCallDialog() {
+   const t = useTranslations('calls.concurrentCall');
+   const tUpgrade = useTranslations('organizations.upgrade');
+   const api = useApi();
+-  const { organization, isLoaded: isOrgLoaded } = useOrganization();
++  const { organization, isLoaded: isOrgLoaded } = useSession();
+ 
+   const open = useConcurrentCallStore((s) => s.open);
+   const message = useConcurrentCallStore((s) => s.message);
+
+diff --git a/apps/frontend/src/i18n/locales/de/auth.json b/apps/frontend/src/i18n/locales/de/auth.json
+--- a/apps/frontend/src/i18n/locales/de/auth.json
++++ b/apps/frontend/src/i18n/locales/de/auth.json
+@@ -125,5 +125,10 @@
+     "loadError": "Diese Anmeldeanfrage konnte nicht geladen werden. Laden Sie die Seite neu, um es erneut zu versuchen.",
+     "actionError": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
+     "tryAnotherCode": "Anderen Code eingeben"
++  },
++  "closedSignup": {
++    "title": "Accounts are provisioned by your administrator",
++    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
++    "signInLink": "Back to sign in"
+   }
+ }
+
+diff --git a/apps/frontend/src/i18n/locales/de/calls.json b/apps/frontend/src/i18n/locales/de/calls.json
+--- a/apps/frontend/src/i18n/locales/de/calls.json
++++ b/apps/frontend/src/i18n/locales/de/calls.json
+@@ -456,7 +456,8 @@
+         "switchTo": "Zu {name} wechseln",
+         "checkFailed": "Wir konnten nicht prüfen, ob Sie bereits einen Organisationstarif haben.",
+         "readyTitle": "Ihr Organisationstarif ist bereit",
+-        "readyDescription": "Erstellen Sie Ihre Organisation, um mit Kampagnen zu beginnen."
++        "readyDescription": "Erstellen Sie Ihre Organisation, um mit Kampagnen zu beginnen.",
++        "contactAdmin": "Your subscription is ready. Ask your administrator to set up your organization."
+       }
+     },
+     "search": {
+
+diff --git a/apps/frontend/src/i18n/locales/de/organizations.json b/apps/frontend/src/i18n/locales/de/organizations.json
+--- a/apps/frontend/src/i18n/locales/de/organizations.json
++++ b/apps/frontend/src/i18n/locales/de/organizations.json
+@@ -57,5 +57,16 @@
+     "required": "Abonnement erforderlich",
+     "requiredDescription": "Sie benötigen ein aktives Abonnement, um eine weitere Organisation zu erstellen.",
+     "subscribeNow": "Jetzt abonnieren"
++  },
++  "invitations": {
++    "title": "Organization invitations",
++    "description": "Invitations sent to your verified email address.",
++    "loading": "Loading invitations…",
++    "empty": "You have no pending invitations.",
++    "invitedTo": "Invited: {email}",
++    "role": "Role: {role}",
++    "accept": "Accept",
++    "accepting": "Accepting…",
++    "acceptError": "That invitation could not be accepted. It may have expired."
+   }
+ }
+
+diff --git a/apps/frontend/src/i18n/locales/en/calls.json b/apps/frontend/src/i18n/locales/en/calls.json
+--- a/apps/frontend/src/i18n/locales/en/calls.json
++++ b/apps/frontend/src/i18n/locales/en/calls.json
+@@ -665,7 +665,8 @@
+         "switchTo": "Switch to {name}",
+         "checkFailed": "We couldn't check whether you already have an Organization plan.",
+         "readyTitle": "Your Organization plan is ready",
+-        "readyDescription": "Create your organization to start running campaigns."
++        "readyDescription": "Create your organization to start running campaigns.",
++        "contactAdmin": "Your subscription is ready. Ask your administrator to set up your organization."
+       }
+     },
+     "search": {
+
+diff --git a/apps/frontend/src/i18n/locales/en/organizations.json b/apps/frontend/src/i18n/locales/en/organizations.json
+--- a/apps/frontend/src/i18n/locales/en/organizations.json
++++ b/apps/frontend/src/i18n/locales/en/organizations.json
+@@ -57,5 +57,16 @@
+     "required": "Subscription Required",
+     "requiredDescription": "You need an active subscription to create another organization.",
+     "subscribeNow": "Subscribe Now"
++  },
++  "invitations": {
++    "title": "Organization invitations",
++    "description": "Invitations sent to your verified email address.",
++    "loading": "Loading invitations…",
++    "empty": "You have no pending invitations.",
++    "invitedTo": "Invited: {email}",
++    "role": "Role: {role}",
++    "accept": "Accept",
++    "accepting": "Accepting…",
++    "acceptError": "That invitation could not be accepted. It may have expired."
+   }
+ }
+
+diff --git a/apps/frontend/src/i18n/locales/es-MX/auth.json b/apps/frontend/src/i18n/locales/es-MX/auth.json
+--- a/apps/frontend/src/i18n/locales/es-MX/auth.json
++++ b/apps/frontend/src/i18n/locales/es-MX/auth.json
+@@ -1,5 +1,10 @@
+ {
+   "fields": {
+     "namePlaceholder": "Juan Pérez"
++  },
++  "closedSignup": {
++    "title": "Accounts are provisioned by your administrator",
++    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
++    "signInLink": "Back to sign in"
+   }
+ }
+
+diff --git a/apps/frontend/src/i18n/locales/es/calls.json b/apps/frontend/src/i18n/locales/es/calls.json
+--- a/apps/frontend/src/i18n/locales/es/calls.json
++++ b/apps/frontend/src/i18n/locales/es/calls.json
+@@ -456,7 +456,8 @@
+         "switchTo": "Cambiar a {name}",
+         "checkFailed": "No pudimos comprobar si ya tienes un plan Organización.",
+         "readyTitle": "Tu plan Organización está listo",
+-        "readyDescription": "Crea tu organización para empezar a trabajar con campañas."
++        "readyDescription": "Crea tu organización para empezar a trabajar con campañas.",
++        "contactAdmin": "Your subscription is ready. Ask your administrator to set up your organization."
+       }
+     },
+     "search": {
+
+diff --git a/apps/frontend/src/i18n/locales/es/organizations.json b/apps/frontend/src/i18n/locales/es/organizations.json
+--- a/apps/frontend/src/i18n/locales/es/organizations.json
++++ b/apps/frontend/src/i18n/locales/es/organizations.json
+@@ -57,5 +57,16 @@
+     "required": "Suscripción requerida",
+     "requiredDescription": "Necesitas una suscripción activa para crear otra organización.",
+     "subscribeNow": "Suscribirse ahora"
++  },
++  "invitations": {
++    "title": "Organization invitations",
++    "description": "Invitations sent to your verified email address.",
++    "loading": "Loading invitations…",
++    "empty": "You have no pending invitations.",
++    "invitedTo": "Invited: {email}",
++    "role": "Role: {role}",
++    "accept": "Accept",
++    "accepting": "Accepting…",
++    "acceptError": "That invitation could not be accepted. It may have expired."
+   }
+ }
+
+diff --git a/apps/frontend/src/i18n/locales/fr-BE/auth.json b/apps/frontend/src/i18n/locales/fr-BE/auth.json
+--- a/apps/frontend/src/i18n/locales/fr-BE/auth.json
++++ b/apps/frontend/src/i18n/locales/fr-BE/auth.json
+@@ -1,5 +1,10 @@
+ {
+   "fields": {
+     "namePlaceholder": "Sophie Lambert"
++  },
++  "closedSignup": {
++    "title": "Accounts are provisioned by your administrator",
++    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
++    "signInLink": "Back to sign in"
+   }
+ }
+
+diff --git a/apps/frontend/src/i18n/locales/fr/auth.json b/apps/frontend/src/i18n/locales/fr/auth.json
+--- a/apps/frontend/src/i18n/locales/fr/auth.json
++++ b/apps/frontend/src/i18n/locales/fr/auth.json
+@@ -125,5 +125,10 @@
+     "loadError": "Impossible de charger cette demande de connexion. Actualisez la page pour réessayer.",
+     "actionError": "Une erreur s'est produite. Réessayez.",
+     "tryAnotherCode": "Saisir un autre code"
++  },
++  "closedSignup": {
++    "title": "Accounts are provisioned by your administrator",
++    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
++    "signInLink": "Back to sign in"
+   }
+ }
+
+diff --git a/apps/frontend/src/i18n/locales/fr/calls.json b/apps/frontend/src/i18n/locales/fr/calls.json
+--- a/apps/frontend/src/i18n/locales/fr/calls.json
++++ b/apps/frontend/src/i18n/locales/fr/calls.json
+@@ -456,7 +456,8 @@
+         "switchTo": "Passer à {name}",
+         "checkFailed": "Nous n’avons pas pu vérifier si vous avez déjà un forfait Organisation.",
+         "readyTitle": "Votre forfait Organisation est prêt",
+-        "readyDescription": "Créez votre organisation pour commencer à utiliser les campagnes."
++        "readyDescription": "Créez votre organisation pour commencer à utiliser les campagnes.",
++        "contactAdmin": "Your subscription is ready. Ask your administrator to set up your organization."
+       }
+     },
+     "search": {
+
+diff --git a/apps/frontend/src/i18n/locales/fr/organizations.json b/apps/frontend/src/i18n/locales/fr/organizations.json
+--- a/apps/frontend/src/i18n/locales/fr/organizations.json
++++ b/apps/frontend/src/i18n/locales/fr/organizations.json
+@@ -57,5 +57,16 @@
+     "required": "Abonnement requis",
+     "requiredDescription": "Vous avez besoin d'un abonnement actif pour créer une autre organisation.",
+     "subscribeNow": "S'abonner maintenant"
++  },
++  "invitations": {
++    "title": "Organization invitations",
++    "description": "Invitations sent to your verified email address.",
++    "loading": "Loading invitations…",
++    "empty": "You have no pending invitations.",
++    "invitedTo": "Invited: {email}",
++    "role": "Role: {role}",
++    "accept": "Accept",
++    "accepting": "Accepting…",
++    "acceptError": "That invitation could not be accepted. It may have expired."
+   }
+ }
+
+diff --git a/apps/frontend/src/i18n/locales/it/auth.json b/apps/frontend/src/i18n/locales/it/auth.json
+--- a/apps/frontend/src/i18n/locales/it/auth.json
++++ b/apps/frontend/src/i18n/locales/it/auth.json
+@@ -125,5 +125,10 @@
+     "loadError": "Impossibile caricare questa richiesta di accesso. Ricarica la pagina per riprovare.",
+     "actionError": "Qualcosa è andato storto. Riprova.",
+     "tryAnotherCode": "Inserisci un altro codice"
++  },
++  "closedSignup": {
++    "title": "Accounts are provisioned by your administrator",
++    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
++    "signInLink": "Back to sign in"
+   }
+ }
+
+diff --git a/apps/frontend/src/i18n/locales/it/calls.json b/apps/frontend/src/i18n/locales/it/calls.json
+--- a/apps/frontend/src/i18n/locales/it/calls.json
++++ b/apps/frontend/src/i18n/locales/it/calls.json
+@@ -449,7 +449,8 @@
+         "switchTo": "Passa a {name}",
+         "checkFailed": "Non siamo riusciti a verificare se hai già un piano Organizzazione.",
+         "readyTitle": "Il tuo piano Organizzazione è pronto",
+-        "readyDescription": "Crea la tua organizzazione per iniziare a usare le campagne."
++        "readyDescription": "Crea la tua organizzazione per iniziare a usare le campagne.",
++        "contactAdmin": "Your subscription is ready. Ask your administrator to set up your organization."
+       }
+     },
+     "search": {
+
+diff --git a/apps/frontend/src/i18n/locales/it/organizations.json b/apps/frontend/src/i18n/locales/it/organizations.json
+--- a/apps/frontend/src/i18n/locales/it/organizations.json
++++ b/apps/frontend/src/i18n/locales/it/organizations.json
+@@ -57,5 +57,16 @@
+     "required": "Abbonamento richiesto",
+     "requiredDescription": "È necessario un abbonamento attivo per creare un'altra organizzazione.",
+     "subscribeNow": "Abbonati ora"
++  },
++  "invitations": {
++    "title": "Organization invitations",
++    "description": "Invitations sent to your verified email address.",
++    "loading": "Loading invitations…",
++    "empty": "You have no pending invitations.",
++    "invitedTo": "Invited: {email}",
++    "role": "Role: {role}",
++    "accept": "Accept",
++    "accepting": "Accepting…",
++    "acceptError": "That invitation could not be accepted. It may have expired."
+   }
+ }
+
+diff --git a/apps/frontend/src/i18n/locales/nl/auth.json b/apps/frontend/src/i18n/locales/nl/auth.json
+--- a/apps/frontend/src/i18n/locales/nl/auth.json
++++ b/apps/frontend/src/i18n/locales/nl/auth.json
+@@ -125,5 +125,10 @@
+     "loadError": "We konden dit inlogverzoek niet laden. Vernieuw de pagina om het opnieuw te proberen.",
+     "actionError": "Er ging iets mis. Probeer het opnieuw.",
+     "tryAnotherCode": "Een andere code invoeren"
++  },
++  "closedSignup": {
++    "title": "Accounts are provisioned by your administrator",
++    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
++    "signInLink": "Back to sign in"
+   }
+ }
+
+diff --git a/apps/frontend/src/i18n/locales/nl/calls.json b/apps/frontend/src/i18n/locales/nl/calls.json
+--- a/apps/frontend/src/i18n/locales/nl/calls.json
++++ b/apps/frontend/src/i18n/locales/nl/calls.json
+@@ -456,7 +456,8 @@
+         "switchTo": "Overschakelen naar {name}",
+         "checkFailed": "We konden niet controleren of je al een Organisatie-abonnement hebt.",
+         "readyTitle": "Je Organisatie-abonnement is klaar",
+-        "readyDescription": "Maak je organisatie aan om met campagnes te beginnen."
++        "readyDescription": "Maak je organisatie aan om met campagnes te beginnen.",
++        "contactAdmin": "Your subscription is ready. Ask your administrator to set up your organization."
+       }
+     },
+     "search": {
+
+diff --git a/apps/frontend/src/i18n/locales/nl/organizations.json b/apps/frontend/src/i18n/locales/nl/organizations.json
+--- a/apps/frontend/src/i18n/locales/nl/organizations.json
++++ b/apps/frontend/src/i18n/locales/nl/organizations.json
+@@ -57,5 +57,16 @@
+     "required": "Abonnement vereist",
+     "requiredDescription": "U heeft een actief abonnement nodig om nog een organisatie aan te maken.",
+     "subscribeNow": "Nu abonneren"
++  },
++  "invitations": {
++    "title": "Organization invitations",
++    "description": "Invitations sent to your verified email address.",
++    "loading": "Loading invitations…",
++    "empty": "You have no pending invitations.",
++    "invitedTo": "Invited: {email}",
++    "role": "Role: {role}",
++    "accept": "Accept",
++    "accepting": "Accepting…",
++    "acceptError": "That invitation could not be accepted. It may have expired."
+   }
+ }
+
+diff --git a/apps/frontend/src/i18n/locales/pt/auth.json b/apps/frontend/src/i18n/locales/pt/auth.json
+--- a/apps/frontend/src/i18n/locales/pt/auth.json
++++ b/apps/frontend/src/i18n/locales/pt/auth.json
+@@ -125,5 +125,10 @@
+     "loadError": "Não foi possível carregar este pedido de início de sessão. Atualize a página para tentar novamente.",
+     "actionError": "Algo correu mal. Tente novamente.",
+     "tryAnotherCode": "Introduzir outro código"
++  },
++  "closedSignup": {
++    "title": "Accounts are provisioned by your administrator",
++    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
++    "signInLink": "Back to sign in"
+   }
+ }
+
+diff --git a/apps/frontend/src/i18n/locales/pt/calls.json b/apps/frontend/src/i18n/locales/pt/calls.json
+--- a/apps/frontend/src/i18n/locales/pt/calls.json
++++ b/apps/frontend/src/i18n/locales/pt/calls.json
+@@ -456,7 +456,8 @@
+         "switchTo": "Mudar para {name}",
+         "checkFailed": "Não foi possível verificar se já tem um plano Organização.",
+         "readyTitle": "O seu plano Organização está pronto",
+-        "readyDescription": "Crie a sua organização para começar a trabalhar com campanhas."
++        "readyDescription": "Crie a sua organização para começar a trabalhar com campanhas.",
++        "contactAdmin": "Your subscription is ready. Ask your administrator to set up your organization."
+       }
+     },
+     "search": {
+
+diff --git a/apps/frontend/src/i18n/locales/pt/organizations.json b/apps/frontend/src/i18n/locales/pt/organizations.json
+--- a/apps/frontend/src/i18n/locales/pt/organizations.json
++++ b/apps/frontend/src/i18n/locales/pt/organizations.json
+@@ -57,5 +57,16 @@
+     "required": "Subscrição necessária",
+     "requiredDescription": "Precisa de uma subscrição ativa para criar outra organização.",
+     "subscribeNow": "Subscrever agora"
++  },
++  "invitations": {
++    "title": "Organization invitations",
++    "description": "Invitations sent to your verified email address.",
++    "loading": "Loading invitations…",
++    "empty": "You have no pending invitations.",
++    "invitedTo": "Invited: {email}",
++    "role": "Role: {role}",
++    "accept": "Accept",
++    "accepting": "Accepting…",
++    "acceptError": "That invitation could not be accepted. It may have expired."
+   }
+ }
+
+diff --git a/apps/frontend/src/middleware.ts b/apps/frontend/src/middleware.ts
+--- a/apps/frontend/src/middleware.ts
++++ b/apps/frontend/src/middleware.ts
+@@ -1,17 +1,22 @@
+-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+ import { NextRequest, NextResponse } from 'next/server';
+ 
+-const isProtectedRoute = createRouteMatcher([
+-  '/dashboard(.*)',
+-  '/backoffice(.*)',
+-  '/infra(.*)',
+-  // `ringee login` sends the user here to approve a terminal.
+-  '/cli(.*)'
+-]);
++/**
++ * Better Auth session cookie name: `cookiePrefix` ("ai-business-os") +
++ * ".session_token". Cross-subdomain cookies share the name.
++ */
++const SESSION_COOKIE = 'ai-business-os.session_token';
+ 
+-export default clerkMiddleware(async (auth, req: NextRequest) => {
+-  if (isProtectedRoute(req)) await auth.protect();
++function isProtectedRoute(pathname: string): boolean {
++  return (
++    pathname.startsWith('/dashboard') ||
++    pathname.startsWith('/backoffice') ||
++    pathname.startsWith('/infra') ||
++    // `ringee login` sends the user here to approve a terminal.
++    pathname.startsWith('/cli')
++  );
++}
+ 
++export default function middleware(req: NextRequest) {
+   const headers = new Headers(req.headers);
+   headers.delete('x-ringee-locale');
+   if (
+@@ -20,8 +25,22 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
+   ) {
+     headers.set('x-ringee-locale', 'es');
+   }
++
++  // Cheap presence gate for UX: send cookie-less visitors to sign-in.
++  // The backend AuthGuard is the real boundary — it rejects missing,
++  // expired, or revoked sessions on every request.
++  if (
++    isProtectedRoute(req.nextUrl.pathname) &&
++    !req.cookies.get(SESSION_COOKIE)
++  ) {
++    const signIn = new URL('/auth/sign-in', req.url);
++    signIn.searchParams.set('redirect', req.nextUrl.pathname);
++    return NextResponse.redirect(signIn);
++  }
++
+   return NextResponse.next({ request: { headers } });
+-});
++}
++
+ export const config = {
+   matcher: [
+     // Skip Next.js internals and all static files, unless found in search params
+
+diff --git a/packages/frontend-shared/src/components/org-switcher.tsx b/packages/frontend-shared/src/components/org-switcher.tsx
+--- a/packages/frontend-shared/src/components/org-switcher.tsx
++++ b/packages/frontend-shared/src/components/org-switcher.tsx
+@@ -4,14 +4,11 @@ import {
+   Check,
+   ChevronsUpDown,
+   GalleryVerticalEnd,
+-  Plus,
+   Settings,
+   Sparkles,
+   User,
+ } from "lucide-react";
+ import * as React from "react";
+-import { useOrganization, useOrganizationList } from "@clerk/nextjs";
+-import { CreateOrganization, OrganizationProfile } from "@clerk/nextjs";
+ import { useTranslations } from "next-intl";
+ 
+ import {
+@@ -26,77 +23,117 @@ import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "./ui/sidebar";
+ import {
+   Dialog,
+   DialogContent,
+-  DialogTrigger,
+   DialogHeader,
+   DialogTitle,
+ } from "./ui/dialog";
+ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+ import { OrganizationUpgradePanel } from "./organization-upgrade-panel";
+ import { cn } from "../lib/utils";
+-import { useRouter } from "next/navigation";
+ import { useApi } from "../hooks/use.api";
++import { useSession } from "../auth/session-provider";
++import { useOrganizations } from "../hooks/use-organizations";
+ 
+ // Mock data for demo/development purposes
+ const mockOrganization = {
+   id: "org_mock_123",
+   name: "Acme Corp",
+   imageUrl: "/acme-corp.jpeg",
++  role: "org:admin" as const,
+ };
+ 
+ const mockMemberships = [
+-  {
+-    organization: {
+-      id: "org_mock_123",
+-      name: "Acme Corp",
+-      imageUrl: "/acme-corp.jpeg",
+-    },
+-    role: "org:admin",
+-  },
+-  {
+-    organization: {
+-      id: "org_mock_456",
+-      name: "Acme Corp",
+-      imageUrl: "",
+-    },
+-    role: "org:member",
+-  },
++  { id: "org_mock_123", name: "Acme Corp", imageUrl: "/acme-corp.jpeg", role: "org:admin" as const },
++  { id: "org_mock_456", name: "Acme Corp", imageUrl: "", role: "org:member" as const },
+ ];
+ 
++interface OrgMemberRow {
++  id: string;
++  name: string | null;
++  email: string | null;
++  imageUrl: string | null;
++  role: string;
++  isCurrentUser: boolean;
++}
++
++function ManageOrganizationDialog({ organizationId }: { organizationId: string }) {
++  const t = useTranslations("organizations.switcher");
++  const api = useApi();
++  const [members, setMembers] = React.useState<OrgMemberRow[]>([]);
++  const [isLoaded, setIsLoaded] = React.useState(false);
++
++  React.useEffect(() => {
++    let cancelled = false;
++    api
++      .get<OrgMemberRow[]>(`/organizations/${organizationId}/members`)
++      .then((rows) => {
++        if (!cancelled) setMembers(Array.isArray(rows) ? rows : []);
++      })
++      .catch(() => {
++        if (!cancelled) setMembers([]);
++      })
++      .finally(() => {
++        if (!cancelled) setIsLoaded(true);
++      });
++    return () => {
++      cancelled = true;
++    };
++  }, [api, organizationId]);
++
++  return (
++    <div className="bg-background rounded-2xl border p-6 shadow-xl">
++      <h2 className="text-lg font-semibold">{t("manageOrganization")}</h2>
++      {!isLoaded ? (
++        <p className="text-muted-foreground mt-4 text-sm">{t("loading")}</p>
++      ) : members.length === 0 ? (
++        <p className="text-muted-foreground mt-4 text-sm">{t("noMembers")}</p>
++      ) : (
++        <ul className="mt-4 space-y-2">
++          {members.map((m) => (
++            <li
++              key={m.id}
++              className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
++            >
++              <div className="min-w-0">
++                <p className="truncate text-sm font-medium">
++                  {m.name ?? m.email ?? m.id}
++                </p>
++                {m.email && (
++                  <p className="text-muted-foreground truncate text-xs">
++                    {m.email}
++                  </p>
++                )}
++              </div>
++              <span className="text-muted-foreground shrink-0 text-xs">
++                {m.role}
++                {m.isCurrentUser ? ` · ${t("you")}` : ""}
++              </span>
++            </li>
++          ))}
++        </ul>
++      )}
++    </div>
++  );
++}
++
+ export function OrgSwitcher({ useMock }: { useMock?: boolean }) {
+   const t = useTranslations("organizations");
+   const tUpgrade = useTranslations("organizations.upgrade");
+-  const tSub = useTranslations("organizations.subscription");
+   const tSwitcher = useTranslations("organizations.switcher");
+ 
+-  // Use real Clerk hooks only when not in mock mode
+-  const clerkOrg = useOrganization();
+-  const clerkOrgList = useOrganizationList({
+-    userMemberships: {
+-      infinite: true,
+-    },
+-  });
++  const session = useSession();
++  const orgs = useOrganizations();
+ 
+   // Determine which data to use based on useMock
+-  const activeOrganization = useMock ? mockOrganization : clerkOrg.organization;
+-  const isOrgLoaded = useMock ? true : clerkOrg.isLoaded;
+-  const membership = useMock ? { role: "org:admin" } : clerkOrg.membership;
+-  const userMemberships = useMock
+-    ? { data: mockMemberships }
+-    : clerkOrgList.userMemberships;
+-  const isMembershipsLoaded = useMock ? true : clerkOrgList.isLoaded;
+-  const setActive = useMock
+-    ? ({ organization }: { organization: string | null }) => {
+-        console.log("[Mock] Setting active org:", organization);
+-      }
+-    : clerkOrgList.setActive;
++  const activeOrganization = useMock ? mockOrganization : session.organization;
++  const isOrgLoaded = useMock ? true : session.isLoaded;
++  const membership = useMock ? { role: "org:admin" as const } : session.membership;
++  const memberships = useMock ? mockMemberships : orgs.organizations;
++  const isMembershipsLoaded = useMock ? true : orgs.isLoaded;
+ 
+-  const router = useRouter();
+   const api = useApi();
+ 
+-  const [isCreateOpen, setIsCreateOpen] = React.useState(false);
+   const [isManageOpen, setIsManageOpen] = React.useState(false);
+   const [isUpgradePopoverOpen, setIsUpgradePopoverOpen] = React.useState(false);
+-  const [isUpgradeCreateOpen, setIsUpgradeCreateOpen] = React.useState(false);
+   const [hasAvailableSubscription, setHasAvailableSubscription] =
+     React.useState(false);
+   const [isLoadingSubscription, setIsLoadingSubscription] = React.useState(
+@@ -140,74 +177,24 @@ export function OrgSwitcher({ useMock }: { useMock?: boolean }) {
+   }
+ 
+   const isAdmin = membership?.role === "org:admin";
+-  const hasOrgs = userMemberships.data && userMemberships.data.length > 0;
+-
+-  const handleCreateOrg = () => {
+-    setIsUpgradeCreateOpen(true);
+-  };
++  const hasOrgs = memberships.length > 0;
+ 
+   const handleSetOrg = async (org: string | null) => {
++    if (useMock) {
++      console.log("[Mock] Setting active org:", org);
++      return;
++    }
+     setIsSwitchingOrg(true);
+     try {
+-      await setActive?.({ organization: org });
++      await session.setActiveOrganization(org);
+       window.location.reload();
+     } finally {
+       setIsSwitchingOrg(false);
+     }
+   };
+ 
+-  // Has subscription but no org yet - show Create Organization button
+-  if (hasAvailableSubscription) {
+-    return (
+-      <SidebarMenu>
+-        <SidebarMenuItem>
+-          <SidebarMenuButton
+-            size="lg"
+-            onClick={handleCreateOrg}
+-            className={cn(
+-              "group relative flex items-center gap-2 overflow-hidden rounded-xl px-5 py-2.5 font-semibold",
+-              "transition-all duration-300 ease-out",
+-              "bg-gradient-to-r from-emerald-500/10 via-teal-400/10 to-cyan-400/10",
+-              "hover:from-emerald-500/20 hover:via-teal-400/20 hover:to-cyan-400/20",
+-              "backdrop-blur-md",
+-              "border border-emerald-500/20",
+-              "text-emerald-700 dark:text-emerald-300",
+-              "shadow-[0_0_18px_-4px_rgba(45,212,191,0.2)]",
+-              "hover:shadow-[0_0_25px_-4px_rgba(45,212,191,0.4)]",
+-              "cursor-pointer",
+-            )}
+-          >
+-            <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 group-hover:bg-emerald-500/30 transition-colors">
+-              <Plus className="size-4" />
+-            </div>
+-            <div className="flex flex-col gap-0.5 leading-none">
+-              <span className="font-semibold">
+-                {tSwitcher("createNewOrganization")}
+-              </span>
+-              <span className="text-xs opacity-80">
+-                {tSwitcher("subscriptionReady")}
+-              </span>
+-            </div>
+-          </SidebarMenuButton>
+-
+-          <Dialog
+-            open={isUpgradeCreateOpen}
+-            onOpenChange={setIsUpgradeCreateOpen}
+-          >
+-            <DialogContent className="sm:max-w-[425px] p-0 border-none bg-transparent shadow-none">
+-              <DialogHeader className="sr-only">
+-                <DialogTitle>{tSwitcher("createOrganization")}</DialogTitle>
+-              </DialogHeader>
+-              <CreateOrganization afterCreateOrganizationUrl="/" />
+-            </DialogContent>
+-          </Dialog>
+-        </SidebarMenuItem>
+-      </SidebarMenu>
+-    );
+-  }
+-
+   if (!hasOrgs) {
+-    // No subscription - show upgrade popover
++    // No organizations - show upgrade popover
+     return (
+       <SidebarMenu>
+         <SidebarMenuItem>
+@@ -309,122 +296,61 @@ export function OrgSwitcher({ useMock }: { useMock?: boolean }) {
+             <DropdownMenuLabel className="text-xs text-muted-foreground">
+               {tSwitcher("organizations")}
+             </DropdownMenuLabel>
+-            {userMemberships.data?.map((mem) => (
++            {memberships.map((mem) => (
+               <DropdownMenuItem
+-                key={mem.organization.id}
+-                onSelect={() => handleSetOrg(mem.organization.id)}
++                key={mem.id}
++                onSelect={() => handleSetOrg(mem.id)}
+                 className="gap-2 p-2"
+               >
+                 <div className="flex size-6 items-center justify-center rounded-sm border">
+-                  {mem.organization.imageUrl ? (
++                  {mem.imageUrl ? (
+                     <img
+-                      src={mem.organization.imageUrl}
+-                      alt={mem.organization.name}
++                      src={mem.imageUrl}
++                      alt={mem.name}
+                       className="size-6 rounded-sm object-cover"
+                     />
+                   ) : (
+                     <GalleryVerticalEnd className="size-4 shrink-0" />
+                   )}
+                 </div>
+-                {mem.organization.name}
+-                {activeOrganization?.id === mem.organization.id && (
++                {mem.name}
++                {activeOrganization?.id === mem.id && (
+                   <Check className="ml-auto" />
+                 )}
+               </DropdownMenuItem>
+             ))}
+             <DropdownMenuSeparator />
+-            {isAdmin && (
+-              <>
+-                <Dialog open={isManageOpen} onOpenChange={setIsManageOpen}>
+-                  <DialogTrigger asChild>
+-                    <DropdownMenuItem
+-                      onSelect={(e) => {
+-                        e.preventDefault();
+-                        setIsManageOpen(true);
+-                      }}
+-                      className="gap-2 p-2"
+-                    >
+-                      <div className="flex size-6 items-center justify-center rounded-md border bg-background">
+-                        <Settings className="size-4" />
+-                      </div>
+-                      <div className="font-medium text-muted-foreground">
+-                        {tSwitcher("manageOrganization")}
+-                      </div>
+-                    </DropdownMenuItem>
+-                  </DialogTrigger>
+-                  <DialogContent className="sm:max-w-[900px] p-0 border-none bg-transparent shadow-none max-h-[85vh] overflow-y-auto">
+-                    <DialogHeader className="sr-only">
+-                      <DialogTitle>
+-                        {tSwitcher("manageOrganization")}
+-                      </DialogTitle>
+-                    </DialogHeader>
+-                    <OrganizationProfile />
+-                  </DialogContent>
+-                </Dialog>
+-                <DropdownMenuSeparator />
+-              </>
+-            )}
+-            {hasAvailableSubscription ? (
+-              <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+-                <DialogTrigger asChild>
+-                  <DropdownMenuItem
+-                    onSelect={(e) => {
+-                      e.preventDefault();
+-                      setIsCreateOpen(true);
+-                    }}
+-                    className="gap-2 p-2"
+-                  >
+-                    <div className="flex size-6 items-center justify-center rounded-md border bg-background">
+-                      <Plus className="size-4" />
+-                    </div>
+-                    <div className="font-medium text-muted-foreground">
+-                      {tSwitcher("createOrganization")}
+-                    </div>
+-                  </DropdownMenuItem>
+-                </DialogTrigger>
+-                <DialogContent className="sm:max-w-[425px] p-0 border-none bg-transparent shadow-none">
+-                  <DialogHeader className="sr-only">
+-                    <DialogTitle>{tSwitcher("createOrganization")}</DialogTitle>
+-                  </DialogHeader>
+-                  <CreateOrganization afterCreateOrganizationUrl="/" />
+-                </DialogContent>
+-              </Dialog>
+-            ) : (
++            {isAdmin && activeOrganization && (
+               <>
+                 <DropdownMenuItem
+                   onSelect={(e) => {
+                     e.preventDefault();
+-                    setIsUpgradePopoverOpen(true);
++                    setIsManageOpen(true);
+                   }}
+                   className="gap-2 p-2"
+                 >
+                   <div className="flex size-6 items-center justify-center rounded-md border bg-background">
+-                    <Plus className="size-4" />
++                    <Settings className="size-4" />
+                   </div>
+                   <div className="font-medium text-muted-foreground">
+-                    {tSwitcher("createOrganization")}
++                    {tSwitcher("manageOrganization")}
+                   </div>
+                 </DropdownMenuItem>
+-                <Dialog
+-                  open={isUpgradePopoverOpen}
+-                  onOpenChange={setIsUpgradePopoverOpen}
+-                >
+-                  <DialogContent className="sm:max-w-[400px] p-6">
+-                    <DialogHeader className="sr-only">
+-                      <DialogTitle>{tSub("required")}</DialogTitle>
+-                    </DialogHeader>
+-                    <OrganizationUpgradePanel
+-                      title={tSub("required")}
+-                      description={tSub("requiredDescription")}
+-                      ctaLabel={tSub("subscribeNow")}
+-                      perOrg
+-                    />
+-                  </DialogContent>
+-                </Dialog>
++                <DropdownMenuSeparator />
+               </>
+             )}
+           </DropdownMenuContent>
+         </DropdownMenu>
++        <Dialog open={isManageOpen} onOpenChange={setIsManageOpen}>
++          <DialogContent className="sm:max-w-[520px]">
++            <DialogHeader className="sr-only">
++              <DialogTitle>{tSwitcher("manageOrganization")}</DialogTitle>
++            </DialogHeader>
++            {activeOrganization && (
++              <ManageOrganizationDialog organizationId={activeOrganization.id} />
++            )}
++          </DialogContent>
++        </Dialog>
+       </SidebarMenuItem>
+     </SidebarMenu>
+   );
+
+diff --git a/packages/frontend-shared/src/components/user-avatar-profile.tsx b/packages/frontend-shared/src/components/user-avatar-profile.tsx
+--- a/packages/frontend-shared/src/components/user-avatar-profile.tsx
++++ b/packages/frontend-shared/src/components/user-avatar-profile.tsx
+@@ -4,10 +4,9 @@ interface UserAvatarProfileProps {
+   className?: string;
+   showInfo?: boolean;
+   user: {
+-    imageUrl?: string;
+-    fullName?: string | null;
+-    emailAddresses: Array<{ emailAddress: string }>;
+-    phoneNumbers?: Array<{ phoneNumber: string }>;
++    imageUrl?: string | null;
++    name?: string | null;
++    email?: string | null;
+   } | null;
+ }
+ 
+@@ -16,23 +15,20 @@ export function UserAvatarProfile({
+   showInfo = false,
+   user,
+ }: UserAvatarProfileProps) {
+-  const identity =
+-    user?.emailAddresses[0]?.emailAddress ??
+-    user?.phoneNumbers?.[0]?.phoneNumber ??
+-    "";
++  const identity = user?.email ?? "";
+ 
+   return (
+     <div className="flex items-center gap-2">
+       <Avatar className={className}>
+-        <AvatarImage src={user?.imageUrl || ""} alt={user?.fullName || ""} />
++        <AvatarImage src={user?.imageUrl || ""} alt={user?.name || ""} />
+         <AvatarFallback className="rounded-lg">
+-          {user?.fullName?.slice(0, 2)?.toUpperCase() || "CN"}
++          {user?.name?.slice(0, 2)?.toUpperCase() || "CN"}
+         </AvatarFallback>
+       </Avatar>
+ 
+       {showInfo && (
+         <div className="grid flex-1 text-left text-sm leading-tight">
+-          <span className="truncate font-semibold">{user?.fullName || ""}</span>
++          <span className="truncate font-semibold">{user?.name || ""}</span>
+           <span className="truncate text-xs">{identity}</span>
+         </div>
+       )}
+
+diff --git a/packages/frontend-shared/src/hooks/use-org-members.ts b/packages/frontend-shared/src/hooks/use-org-members.ts
+--- a/packages/frontend-shared/src/hooks/use-org-members.ts
++++ b/packages/frontend-shared/src/hooks/use-org-members.ts
+@@ -1,35 +1,41 @@
+ "use client";
+ 
+ import * as React from "react";
+-import { useOrganization, useUser } from "@clerk/nextjs";
+ import { useApi } from "./use.api";
++import { useSession } from "../auth/session-provider";
+ 
+ export interface OrgMember {
+   /** The Ringee (DB) user id — what the API takes. */
+   id: string;
+-  /** Full name, else the Clerk identifier (an email), else `null`. */
++  /** Full name, else the email, else `null`. */
+   name: string | null;
+   imageUrl: string | null;
+   /** The signed-in user. */
+   isCurrentUser: boolean;
+ }
+ 
++interface MemberRow {
++  id: string;
++  name: string | null;
++  email: string | null;
++  imageUrl: string | null;
++  role: string;
++  isCurrentUser: boolean;
++}
++
+ /**
+- * The active organization's members with their Ringee user ids: Clerk lists
+- * the memberships, `/user/by-clerk-ids` maps them to DB ids. Members whose DB
+- * user cannot be resolved yet are left out. Empty outside an organization.
++ * The active organization's members with their Ringee user ids, from
++ * `GET /api/organizations/:id/members`. Empty outside an organization.
+  */
+ export function useOrgMembers(): { members: OrgMember[]; isLoaded: boolean } {
+-  const { organization, isLoaded: isOrgLoaded } = useOrganization();
+-  const { user } = useUser();
+-  const currentClerkId = user?.id ?? null;
++  const { orgId, userId, isLoaded: isSessionLoaded } = useSession();
+   const api = useApi();
+   const [members, setMembers] = React.useState<OrgMember[]>([]);
+   const [isLoaded, setIsLoaded] = React.useState(false);
+ 
+   React.useEffect(() => {
+-    if (!isOrgLoaded) return;
+-    if (!organization) {
++    if (!isSessionLoaded) return;
++    if (!orgId) {
+       setMembers([]);
+       setIsLoaded(true);
+       return;
+@@ -37,48 +43,18 @@ export function useOrgMembers(): { members: OrgMember[]; isLoaded: boolean } {
+     let active = true;
+     setIsLoaded(false);
+     setMembers([]);
+-    const loadMembers = async () => {
+-      const resolved: OrgMember[] = [];
+-      const pageSize = 100;
+-      for (let initialPage = 1; active; initialPage++) {
+-        const res = await organization.getMemberships({
+-          initialPage,
+-          pageSize,
+-        });
+-        const clerkIds = res.data
+-          .map((m) => m.publicUserData?.userId)
+-          .filter(Boolean) as string[];
+-        if (res.data.length === 0) break;
+-        const map = await api.get<{ clerkId: string; id: string }[]>(
+-          `/user/by-clerk-ids?ids=${clerkIds.join(",")}`,
++    api
++      .get<MemberRow[]>(`/organizations/${orgId}/members`)
++      .then((rows) => {
++        if (!active) return;
++        setMembers(
++          (Array.isArray(rows) ? rows : []).map((m) => ({
++            id: m.id,
++            name: m.name ?? m.email ?? null,
++            imageUrl: m.imageUrl,
++            isCurrentUser: m.id === userId,
++          })),
+         );
+-        const lookup = new Map(map.map((u) => [u.clerkId, u.id]));
+-        resolved.push(
+-          ...res.data
+-            .map((m) => {
+-              const clerkId = m.publicUserData?.userId || "";
+-              const name =
+-                `${m.publicUserData?.firstName || ""} ${
+-                  m.publicUserData?.lastName || ""
+-                }`.trim() ||
+-                m.publicUserData?.identifier ||
+-                null;
+-              return {
+-                id: lookup.get(clerkId) || "",
+-                name,
+-                imageUrl: m.publicUserData?.imageUrl || null,
+-                isCurrentUser: !!clerkId && clerkId === currentClerkId,
+-              };
+-            })
+-            .filter((m) => m.id),
+-        );
+-        if (initialPage * pageSize >= res.total_count) break;
+-      }
+-      return resolved;
+-    };
+-    void loadMembers()
+-      .then((resolved) => {
+-        if (active) setMembers(resolved);
+       })
+       .catch(() => {
+         if (active) setMembers([]);
+@@ -89,7 +65,7 @@ export function useOrgMembers(): { members: OrgMember[]; isLoaded: boolean } {
+     return () => {
+       active = false;
+     };
+-  }, [isOrgLoaded, organization, api, currentClerkId]);
++  }, [isSessionLoaded, orgId, userId, api]);
+ 
+   return { members, isLoaded };
+ }
+
+diff --git a/packages/frontend-shared/src/hooks/use-org-role.ts b/packages/frontend-shared/src/hooks/use-org-role.ts
+--- a/packages/frontend-shared/src/hooks/use-org-role.ts
++++ b/packages/frontend-shared/src/hooks/use-org-role.ts
+@@ -1,6 +1,6 @@
+ "use client";
+ 
+-import { useOrganization } from "@clerk/nextjs";
++import { useSession } from "@ringee/frontend-shared/auth/session-provider";
+ 
+ /**
+  * Hook for checking organization role-based permissions.
+@@ -11,7 +11,7 @@ import { useOrganization } from "@clerk/nextjs";
+  * - Roles: 'org:admin' (full access), 'org:member' (limited access)
+  */
+ export function useOrgRole() {
+-  const { organization, membership, isLoaded } = useOrganization();
++  const { organization, membership, isLoaded } = useSession();
+ 
+   const hasOrg = !!organization;
+   const orgRole = membership?.role ?? null;
+
+diff --git a/packages/frontend-shared/src/hooks/use.analytics.ts b/packages/frontend-shared/src/hooks/use.analytics.ts
+--- a/packages/frontend-shared/src/hooks/use.analytics.ts
++++ b/packages/frontend-shared/src/hooks/use.analytics.ts
+@@ -2,7 +2,7 @@
+ 
+ import { useEffect } from "react";
+ import { usePathname } from "next/navigation";
+-import { useUser } from "@clerk/nextjs";
++import { useSession } from "@ringee/frontend-shared/auth/session-provider";
+ 
+ function safeGtag(...args: any[]) {
+   if (typeof window === "undefined") return;
+@@ -36,7 +36,7 @@ export function useAnalytics(
+   { topLevel }: { topLevel?: boolean } = { topLevel: false },
+ ) {
+   const pathname = usePathname();
+-  const user = useUser();
++  const user = useSession();
+ 
+   useEffect(() => {
+     if (topLevel && typeof window !== "undefined") {
