@@ -242,6 +242,34 @@ index 18770d4..86817d0 100644
 +    return { isSuperAdmin: resolveSuperAdmin(principal.dto.user) };
    }
  }
+diff --git a/apps/backend/src/api/routes/backoffice.controller.ts b/apps/backend/src/api/routes/backoffice.controller.ts
+index e133a7b..3356235 100644
+--- a/apps/backend/src/api/routes/backoffice.controller.ts
++++ b/apps/backend/src/api/routes/backoffice.controller.ts
+@@ -266,6 +266,23 @@ export class BackofficeController {
+     return this.userAccess.setClerkBan(id, false);
+   }
+ 
++  /**
++   * Full lockdown on the neutral identity: revokes every session, blocks the
++   * Ringee account, hangs up every live call at the provider and pushes
++   * `account.blocked` to every signed-in device over its WebSocket.
++   */
++  @Post("accounts/user/:id/access/identity/ban")
++  banIdentity(@Param("id") id: string): Promise<UserAccessEnforcementResponse> {
++    return this.userAccess.setIdentityBan(id, true);
++  }
++
++  @Post("accounts/user/:id/access/identity/unban")
++  unbanIdentity(
++    @Param("id") id: string,
++  ): Promise<UserAccessEnforcementResponse> {
++    return this.userAccess.setIdentityBan(id, false);
++  }
++
+   /** Devices holding an open realtime socket right now, across all instances. */
+   @Get("accounts/user/:id/access/devices")
+   listConnectedDevices(@Param("id") id: string): Promise<RealtimeDevice[]> {
 diff --git a/apps/backend/src/api/routes/credit.controller.ts b/apps/backend/src/api/routes/credit.controller.ts
 index 62795d7..743e679 100644
 --- a/apps/backend/src/api/routes/credit.controller.ts
@@ -889,6 +917,431 @@ index c5b4885..de5e60d 100644
      ChatAuthController,
      WhatsappController,
      ClerkController,
+diff --git a/apps/backend/src/api/routes/user-access-enforcement.service.spec.ts b/apps/backend/src/api/routes/user-access-enforcement.service.spec.ts
+new file mode 100644
+index 0000000..fa62135
+--- /dev/null
++++ b/apps/backend/src/api/routes/user-access-enforcement.service.spec.ts
+@@ -0,0 +1,205 @@
++/// <reference types="node" />
++
++import "reflect-metadata";
++
++import assert from "node:assert/strict";
++import { describe, it } from "node:test";
++import { Logger } from "@nestjs/common";
++import { UserAccessEnforcementService } from "./user-access-enforcement.service";
++
++function build(
++  over: {
++    user?: {
++      id: string;
++      blockedAt: Date | null;
++      blockedReason: string | null;
++      canCall: boolean;
++    } | null;
++  } = {},
++) {
++  const revoked: string[] = [];
++  const blocked: Array<{ userId: string; reason: string }> = [];
++  const unblocked: Array<{ userId: string; reason: string }> = [];
++  const terminated: string[] = [];
++  const restored: string[] = [];
++
++  const user =
++    over.user !== undefined
++      ? over.user
++      : { id: "user-1", blockedAt: null, blockedReason: null, canCall: true };
++
++  const userRepository = {
++    findById: async () => user,
++    update: async (id: string, data: Record<string, unknown>) =>
++      Object.assign({}, user, data),
++  };
++  const userService = {
++    blockAccount: async (userId: string, reason: string) => {
++      blocked.push({ userId, reason });
++      return { id: userId };
++    },
++    unblockAccount: async (userId: string, expectedReason: string) => {
++      unblocked.push({ userId, reason: expectedReason });
++      return { id: userId };
++    },
++    invalidateUserCache: async () => undefined,
++  };
++  const identities = {
++    revokeIdentitySessions: async (userId: string) => {
++      revoked.push(userId);
++      return 2;
++    },
++  };
++  const callTermination = {
++    terminateAllForUser: async (userId: string) => {
++      terminated.push(userId);
++      return { callIds: [], terminated: 0, withoutControlId: 0, failed: 0 };
++    },
++  };
++  const realtimeEvents = {
++    accountBlocked: async () => undefined,
++    accountRestored: async (userId: string) => {
++      restored.push(userId);
++    },
++    callsTerminated: async () => undefined,
++  };
++  const presence = { list: async () => [] };
++  const agentSessionService = { disableForUser: async () => 0 };
++  const redis = { delMany: async () => undefined };
++
++  const service = new UserAccessEnforcementService(
++    userRepository as never,
++    userService as never,
++    identities as never,
++    agentSessionService as never,
++    redis as never,
++    callTermination as never,
++    realtimeEvents as never,
++    presence as never,
++  );
++  Object.assign(service, {
++    logger: Object.assign(new Logger("spec"), {
++      log: () => {},
++      warn: () => {},
++      error: () => {},
++    }),
++  });
++
++  return { service, revoked, blocked, unblocked, terminated, restored };
++}
++
++describe("UserAccessEnforcementService.setIdentityBan", () => {
++  it("revokes sessions, blocks and locks down a fresh account", async () => {
++    const { service, revoked, blocked, terminated } = build();
++
++    const { access, enforcement } = await service.setIdentityBan("user-1", true);
++
++    assert.deepEqual(revoked, ["user-1"]);
++    assert.deepEqual(blocked, [
++      { userId: "user-1", reason: "identity_banned" },
++    ]);
++    assert.deepEqual(terminated, ["user-1"]);
++    assert.equal(enforcement.devicesNotified, 0);
++    assert.equal(access.ringeeBlocked, false); // mock user row is unchanged
++  });
++
++  it("preserves a pre-existing block reason and still locks down", async () => {
++    const { service, revoked, blocked, terminated } = build({
++      user: {
++        id: "user-1",
++        blockedAt: new Date(),
++        blockedReason: "stripe_payment_abuse",
++        canCall: false,
++      },
++    });
++
++    await service.setIdentityBan("user-1", true);
++
++    assert.deepEqual(revoked, ["user-1"]);
++    assert.deepEqual(blocked, []); // reason preserved, not overwritten
++    assert.deepEqual(terminated, ["user-1"]);
++  });
++
++  it("restores only a block the identity flow owns", async () => {
++    const { service, unblocked, restored } = build({
++      user: {
++        id: "user-1",
++        blockedAt: new Date(),
++        blockedReason: "identity_banned",
++        canCall: false,
++      },
++    });
++
++    const { access } = await service.setIdentityBan("user-1", false);
++
++    assert.deepEqual(unblocked, [
++      { userId: "user-1", reason: "identity_banned" },
++    ]);
++    assert.deepEqual(restored, ["user-1"]);
++    assert.equal(access.identityBanned, true); // mock row still carries it
++  });
++
++  it("restores a legacy provider-ban reason too", async () => {
++    const { service, unblocked } = build({
++      user: {
++        id: "user-1",
++        blockedAt: new Date(),
++        blockedReason: "clerk_user_banned",
++        canCall: false,
++      },
++    });
++
++    await service.setIdentityBan("user-1", false);
++
++    assert.deepEqual(unblocked, [
++      { userId: "user-1", reason: "clerk_user_banned" },
++    ]);
++  });
++
++  it("never clears an unrelated enforcement on unban", async () => {
++    const { service, unblocked, restored } = build({
++      user: {
++        id: "user-1",
++        blockedAt: new Date(),
++        blockedReason: "manual_review",
++        canCall: false,
++      },
++    });
++
++    await service.setIdentityBan("user-1", false);
++
++    assert.deepEqual(unblocked, []);
++    assert.deepEqual(restored, []);
++  });
++});
++
++describe("UserAccessEnforcementService.getAdminState", () => {
++  it("reports the identity ban from the block reason", async () => {
++    const { service } = build({
++      user: {
++        id: "user-1",
++        blockedAt: new Date(),
++        blockedReason: "identity_banned",
++        canCall: false,
++      },
++    });
++    const state = await service.getAdminState("user-1");
++    assert.equal(state.ringeeBlocked, true);
++    assert.equal(state.identityBanned, true);
++    assert.equal(state.canCall, false);
++  });
++
++  it("does not report a product block as an identity ban", async () => {
++    const { service } = build({
++      user: {
++        id: "user-1",
++        blockedAt: new Date(),
++        blockedReason: "stripe_payment_abuse",
++        canCall: false,
++      },
++    });
++    const state = await service.getAdminState("user-1");
++    assert.equal(state.ringeeBlocked, true);
++    assert.equal(state.identityBanned, false);
++  });
++});
+diff --git a/apps/backend/src/api/routes/user-access-enforcement.service.ts b/apps/backend/src/api/routes/user-access-enforcement.service.ts
+index 0646f94..4e98484 100644
+--- a/apps/backend/src/api/routes/user-access-enforcement.service.ts
++++ b/apps/backend/src/api/routes/user-access-enforcement.service.ts
+@@ -15,6 +15,7 @@ import {
+ import {
+   ActiveCallTerminationService,
+   AgentSessionService,
++  AuthIdentityService,
+   CallTerminationResult,
+   CLERK_USER_BAN_REASON,
+   UserService,
+@@ -23,6 +24,18 @@ import {
+ const STRIPE_PAYMENT_ABUSE_REASON = "stripe_payment_abuse";
+ const STRIPE_ABUSE_KEY_PREFIX = "stripe-abuse:v1";
+ 
++/**
++ * Block reason for bans issued through the neutral identity flow. The legacy
++ * "clerk_user_banned" reason is still honored when restoring, so rows written
++ * before the cutover keep their meaning.
++ */
++const IDENTITY_BAN_REASON = "identity_banned";
++const IDENTITY_BAN_REASONS = [
++  IDENTITY_BAN_REASON,
++  CLERK_USER_BAN_REASON,
++  STRIPE_PAYMENT_ABUSE_REASON,
++];
++
+ /** Copy shown to the end user on every device when access is cut. */
+ const BLOCKED_USER_MESSAGE =
+   "Your Ringee account has been disabled and your active calls were ended. Contact support if you think this is a mistake.";
+@@ -32,7 +45,12 @@ export interface UserAccessAdminState {
+   blockedAt: string | null;
+   blockedReason: string | null;
+   canCall: boolean;
+-  clerkBanned: boolean | null;
++  /**
++   * Whether the account is cut off by the identity-ban flow (this or the
++   * legacy provider ban). A Stripe-abuse block is product-level and reports
++   * false here even though the account cannot call.
++   */
++  identityBanned: boolean;
+ }
+ 
+ export interface EnforcementResult {
+@@ -56,6 +74,7 @@ export class UserAccessEnforcementService {
+   constructor(
+     private readonly userRepository: UserRepository,
+     private readonly userService: UserService,
++    private readonly identities: AuthIdentityService,
+     private readonly agentSessionService: AgentSessionService,
+     private readonly redis: RedisService,
+     private readonly callTermination: ActiveCallTerminationService,
+@@ -65,15 +84,15 @@ export class UserAccessEnforcementService {
+ 
+   /**
+    * Payment abuse is enforced in both identity and product layers:
+-   * - Clerk's native ban revokes sessions and prevents future sign-ins.
++   * - Revoking the identity's sessions signs the attacker out everywhere.
+    * - Ringee's persistent block rejects future authenticated requests.
+    * - Ringee canCall=false stops every outbound call path.
+    * - Every live call is hung up at the provider, and every signed-in device is
+    *   told to tear down over its WebSocket.
+    *
+-   * The two branches run independently so a temporary Clerk outage never
++   * The two branches run independently so a session-store failure never
+    * leaves the Ringee dialer enabled, and a local DB failure never prevents
+-   * Clerk from ejecting the attacker.
++   * the identity from being ejected.
+    */
+   async banForPaymentAbuse(userId: string): Promise<void> {
+     const user = await this.userRepository.findById(userId);
+@@ -84,25 +103,23 @@ export class UserAccessEnforcementService {
+       return;
+     }
+ 
+-    const clerkBan = user.clerkId
+-      ? ClerkUserRepository.banUser(user.clerkId)
+-      : Promise.reject(new Error("User has no Clerk id"));
++    const identityRevoke = this.identities.revokeIdentitySessions(user.id);
+     const localDisable = this.disableRingeeDialer(
+       user.id,
+       STRIPE_PAYMENT_ABUSE_REASON,
+     );
+ 
+-    const [clerkResult, localResult] = await Promise.allSettled([
+-      clerkBan,
++    const [revokeResult, localResult] = await Promise.allSettled([
++      identityRevoke,
+       localDisable,
+     ]);
+-    if (clerkResult.status === "rejected") {
++    if (revokeResult.status === "rejected") {
+       this.logger.error(
+-        `Failed to revoke Clerk sessions for Ringee user ${user.id}: ${this.errorMessage(clerkResult.reason)}`,
++        `Failed to revoke identity sessions for Ringee user ${user.id}: ${this.errorMessage(revokeResult.reason)}`,
+       );
+     } else {
+       this.logger.warn(
+-        `Banned Clerk identity and revoked sessions for Ringee user ${user.id}`,
++        `Revoked ${revokeResult.value} identity sessions for Ringee user ${user.id}`,
+       );
+     }
+     if (localResult.status === "rejected") {
+@@ -115,25 +132,16 @@ export class UserAccessEnforcementService {
+   /** Current access state displayed by the protected backoffice. */
+   async getAdminState(userId: string): Promise<UserAccessAdminState> {
+     const user = await this.requireUser(userId);
+-    let clerkBanned: boolean | null = null;
+-
+-    if (user.clerkId) {
+-      try {
+-        const clerkUser = await ClerkUserRepository.findById(user.clerkId);
+-        clerkBanned = clerkUser.banned;
+-      } catch (error) {
+-        this.logger.warn(
+-          `Could not read Clerk ban state for Ringee user ${userId}: ${this.errorMessage(error)}`,
+-        );
+-      }
+-    }
+ 
+     return {
+       ringeeBlocked: Boolean(user.blockedAt),
+       blockedAt: user.blockedAt?.toISOString() ?? null,
+       blockedReason: user.blockedReason,
+       canCall: user.canCall,
+-      clerkBanned,
++      identityBanned:
++        user.blockedAt !== null &&
++        user.blockedReason !== null &&
++        IDENTITY_BAN_REASONS.includes(user.blockedReason),
+     };
+   }
+ 
+@@ -234,6 +242,79 @@ export class UserAccessEnforcementService {
+     return { access: await this.getAdminState(userId), enforcement };
+   }
+ 
++  /**
++   * Ban or unban the neutral identity and mirror the result into Ringee now.
++   *
++   * On a ban the identity's sessions are revoked everywhere, then the
++   * lockdown always runs — even if the user was already blocked: the
++   * administrator's intent is "cut this account off right now", and a
++   * pre-existing block says nothing about calls that are still up. A
++   * pre-existing block keeps its more specific reason.
++   *
++   * On an unban only a block this flow (or its legacy provider predecessor)
++   * is known to have made is cleared; any other enforcement is left alone.
++   */
++  async setIdentityBan(
++    userId: string,
++    banned: boolean,
++  ): Promise<UserAccessEnforcementResponse> {
++    const user = await this.requireUser(userId);
++
++    if (banned) {
++      const revoked = await this.identities
++        .revokeIdentitySessions(user.id)
++        .catch((error: Error) => {
++          this.logger.error(
++            `Failed to revoke identity sessions for Ringee user ${user.id}: ${this.errorMessage(error)}`,
++          );
++          return 0;
++        });
++      this.logger.warn(
++        `Revoked ${revoked} identity sessions for Ringee user ${user.id}`,
++      );
++
++      const enforcement = user.blockedAt
++        ? await this.lockdown(userId, IDENTITY_BAN_REASON)
++        : await this.disableRingeeDialer(userId, IDENTITY_BAN_REASON);
++      this.logger.log(
++        `Identity banned by backoffice for user ${userId} (sessions revoked: ${revoked})`,
++      );
++      return { access: await this.getAdminState(userId), enforcement };
++    }
++
++    // Unblock only a reason this flow owns. Anything else (a manual product
++    // block, an unrelated enforcement) is never erased by an unban.
++    if (
++      user.blockedAt &&
++      user.blockedReason &&
++      IDENTITY_BAN_REASONS.includes(user.blockedReason)
++    ) {
++      await this.resetStripeAbuseState(userId);
++      const restored = await this.userService.unblockAccount(
++        userId,
++        user.blockedReason,
++      );
++      if (restored) {
++        await this.realtimeEvents.accountRestored(userId).catch(() => undefined);
++        this.logger.log(
++          `User ${userId} fully restored after identity unban (previousReason=${user.blockedReason}, canCall=true)`,
++        );
++      }
++    } else {
++      this.logger.log(
++        `Identity unban for user ${userId} left the account untouched (blockedReason=${user.blockedReason ?? "none"})`,
++      );
++    }
++    return {
++      access: await this.getAdminState(userId),
++      enforcement: {
++        calls: this.emptyCalls(),
++        devicesNotified: 0,
++        sessionsDisabled: 0,
++      },
++    };
++  }
++
+   /**
+    * Mirrors Clerk's current ban state into Ringee from the signed user.updated
+    * webhook. Clerk emits the same event for both ban and unban operations.
 diff --git a/apps/backend/src/app.module.ts b/apps/backend/src/app.module.ts
 index b8544b3..8188151 100644
 --- a/apps/backend/src/app.module.ts
@@ -7484,6 +7937,16 @@ index 0000000..8de1131
 +-- A failed acknowledgement cannot cause concurrent or retried duplicate sends.
 +CREATE UNIQUE INDEX "EmailDelivery_pending_fingerprint_key"
 +ON "EmailDelivery" ("domainId", "fingerprint") WHERE "status" IN ('SENDING', 'UNKNOWN');
+diff --git a/packages/database/prisma/migrations/20261016000000_demo_request_auth_identity/migration.sql b/packages/database/prisma/migrations/20261016000000_demo_request_auth_identity/migration.sql
+new file mode 100644
+index 0000000..4610933
+--- /dev/null
++++ b/packages/database/prisma/migrations/20261016000000_demo_request_auth_identity/migration.sql
+@@ -0,0 +1,4 @@
++-- Provider-neutral auth identity reference on demo requests. The legacy
++-- clerkUserId column is retained untouched as a historical reference.
++-- AlterTable
++ALTER TABLE "DemoRequest" ADD COLUMN     "authUserId" UUID;
 diff --git a/packages/database/prisma/migrations/migration_lock.toml b/packages/database/prisma/migrations/migration_lock.toml
 new file mode 100644
 index 0000000..54a0410
@@ -7494,9 +7957,10 @@ index 0000000..54a0410
 +# Please add this file in your version-control system (i.e. Git)
 +provider = "postgresql"
 diff --git a/packages/database/prisma/schema.prisma b/packages/database/prisma/schema.prisma
+index 6fa8332..84ef929 100644
 --- a/packages/database/prisma/schema.prisma
 +++ b/packages/database/prisma/schema.prisma
-@@ -370,6 +370,10 @@
+@@ -370,6 +370,10 @@ enum SocialPlatform {
  model User {
    id                    String    @id @default(uuid()) @db.Uuid
    clerkId               String?   @unique
@@ -7507,7 +7971,7 @@ diff --git a/packages/database/prisma/schema.prisma b/packages/database/prisma/s
    firstName             String?
    lastName              String?
    imageUrl              String?
-@@ -410,6 +414,10 @@
+@@ -410,6 +414,10 @@ model User {
    // Missing keys mean "default on" so older rows keep current behavior.
    notificationPreferences Json?
  
@@ -7518,7 +7982,19 @@ diff --git a/packages/database/prisma/schema.prisma b/packages/database/prisma/s
    emails                  UserEmail[]
    chatAuths               ChatAuth[]
    calls                   Call[]
-@@ -543,7 +551,7 @@
+@@ -529,8 +537,10 @@ model DemoRequest {
+   statusReason     String?
+   /// When the team was emailed that the request is theirs (`manual_review`).
+   teamNotifiedAt   DateTime?
+-  /// The Clerk user created for this person.
++  /// The Clerk user created for this person (historical; kept for reference).
+   clerkUserId      String?
++  /// The provider-neutral auth identity (User.id) created for this person.
++  authUserId       String?   @db.Uuid
+   accountCreatedAt DateTime?
+   /// When the outcome reached the requester: its email (credentials, or the
+   /// request for details) was accepted, or staff created the login themselves.
+@@ -543,7 +553,7 @@ model DemoRequest {
  
  model Organization {
    id            String   @id @default(uuid()) @db.Uuid
@@ -7527,7 +8003,7 @@ diff --git a/packages/database/prisma/schema.prisma b/packages/database/prisma/s
    name          String
    slug          String?  @unique
    imageUrl      String?
-@@ -553,6 +561,11 @@
+@@ -553,6 +563,11 @@ model Organization {
    createdBy     String?
    encryptionKey String?  @db.Text
  
@@ -7539,7 +8015,7 @@ diff --git a/packages/database/prisma/schema.prisma b/packages/database/prisma/s
    members                OrganizationMembership[]
    chatAuths              ChatAuth[]
    calls                  Call[]
-@@ -1919,17 +1932,17 @@
+@@ -1919,17 +1934,17 @@ model ContactList {
  
  /// A contact's place in a list: once per list, while one contact can be in many.
  model ContactListEntry {
@@ -7564,7 +8040,7 @@ diff --git a/packages/database/prisma/schema.prisma b/packages/database/prisma/s
    /// When a call to the contact was found after it joined the list — placed by
    /// anyone in the workspace, from any surface. The list records it from the
    /// workspace's calls (LIST-005); null while the contact is still to call.
-@@ -4944,3 +4957,199 @@
+@@ -4944,3 +4959,199 @@ model InboundRingAttempt {
    @@index([providerCallSessionId])
    @@index([recipientCallSessionId])
  }
@@ -7985,6 +8461,65 @@ index fbdbb69..19f4406 100644
    PrismaService,
    UserRepository,
    ChatAuthRepository,
+diff --git a/packages/database/src/database/repositories/demo-request.repository.ts b/packages/database/src/database/repositories/demo-request.repository.ts
+index 674f8e5..f175fa9 100644
+--- a/packages/database/src/database/repositories/demo-request.repository.ts
++++ b/packages/database/src/database/repositories/demo-request.repository.ts
+@@ -38,10 +38,13 @@ export class DemoRequestRepository {
+     });
+   }
+ 
+-  /** The newest request from this email that has no login yet. */
++  /**
++   * The newest request from this email that has no login yet. A login exists
++   * when either the neutral auth identity or the historical Clerk id is set.
++   */
+   findLatestWithoutAccount(email: string): Promise<DemoRequest | null> {
+     return this.prisma.demoRequest.findFirst({
+-      where: { email, clerkUserId: null },
++      where: { email, authUserId: null, clerkUserId: null },
+       orderBy: { createdAt: "desc" },
+     });
+   }
+@@ -59,13 +62,17 @@ export class DemoRequestRepository {
+     return count === 1;
+   }
+ 
+-  /** The login created for this request. Recorded once. */
+-  async recordAccount(id: string, clerkUserId: string): Promise<boolean> {
++  /**
++   * The login created for this request, as the provider-neutral auth identity
++   * id. Recorded once: the `authUserId: null` guard makes a retry that races
++   * another attempt record nothing instead of overwriting the winner.
++   */
++  async recordAccount(id: string, authUserId: string): Promise<boolean> {
+     const { count } = await this.prisma.demoRequest.updateMany({
+-      where: { id, clerkUserId: null },
++      where: { id, authUserId: null },
+       data: {
+         status: "account_created",
+-        clerkUserId,
++        authUserId,
+         accountCreatedAt: new Date(),
+       },
+     });
+@@ -77,13 +84,13 @@ export class DemoRequestRepository {
+    * handing it over — by the email, or themselves when it failed. Marked
+    * notified either way, so the review never resets the password they gave.
+    */
+-  async recordManualAccount(id: string, clerkUserId: string): Promise<boolean> {
++  async recordManualAccount(id: string, authUserId: string): Promise<boolean> {
+     const now = new Date();
+     const { count } = await this.prisma.demoRequest.updateMany({
+-      where: { id, clerkUserId: null },
++      where: { id, authUserId: null },
+       data: {
+         status: "account_created",
+-        clerkUserId,
++        authUserId,
+         accountCreatedAt: now,
+         statusReason: null,
+         notifiedAt: now,
 diff --git a/packages/database/src/database/repositories/email.repository.ts b/packages/database/src/database/repositories/email.repository.ts
 new file mode 100644
 index 0000000..6cff89c
@@ -8229,6 +8764,282 @@ index eb61501..7fcf340 100644
 +
 +export * from "./email.repository";
 +export * from "./auth-session.repository";
+diff --git a/packages/database/src/database/repositories/organization.repository.ts b/packages/database/src/database/repositories/organization.repository.ts
+index 3ee8ece..2e857d3 100644
+--- a/packages/database/src/database/repositories/organization.repository.ts
++++ b/packages/database/src/database/repositories/organization.repository.ts
+@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
+ import { PrismaService } from "../prisma.service";
+ import {
+   Prisma,
++  AuthInvitation,
+   Organization,
+   OrganizationMembership,
+   User,
+@@ -284,4 +285,160 @@ export class OrganizationRepository {
+       include: { members: true },
+     });
+   }
++
++  /**
++   * Provider-neutral membership write. Upserts on the (organizationId, userId)
++   * unique pair; a re-invite or role change converges instead of duplicating.
++   * Pending invitations never create membership rows — they live in
++   * AuthInvitation until accepted by a verified mailbox.
++   */
++  async addMembershipByIds(
++    organizationId: string,
++    userId: string,
++    role: string,
++  ): Promise<OrganizationMembership> {
++    return this.prisma.organizationMembership.upsert({
++      where: { organizationId_userId: { organizationId, userId } },
++      create: { organizationId, userId, role },
++      update: { role },
++    });
++  }
++
++  /** Provider-neutral membership removal. No-op when there is no membership. */
++  async removeMembershipByIds(
++    organizationId: string,
++    userId: string,
++  ): Promise<void> {
++    await this.prisma.organizationMembership.deleteMany({
++      where: { organizationId, userId },
++    });
++  }
++
++  /** Resolved membership for a user, or null. Never returns pending rows. */
++  async findMembership(
++    organizationId: string,
++    userId: string,
++  ): Promise<OrganizationMembership | null> {
++    if (
++      OrganizationRepository.missingId(organizationId) ||
++      OrganizationRepository.missingId(userId)
++    )
++      return null;
++    return this.prisma.organizationMembership.findUnique({
++      where: { organizationId_userId: { organizationId, userId } },
++    });
++  }
++
++  /** How many org:admin memberships an organization currently has. */
++  async countAdmins(organizationId: string): Promise<number> {
++    return this.prisma.organizationMembership.count({
++      where: { organizationId, role: "org:admin" },
++    });
++  }
++
++  /**
++   * Record a pending invitation. The invitee has no membership row until they
++   * accept with a verified mailbox; the invitation is the only pending state.
++   */
++  async createInvitation(input: {
++    organizationId: string;
++    inviterId: string;
++    email: string;
++    role: string;
++    expiresAt: Date;
++  }): Promise<AuthInvitation> {
++    return this.prisma.authInvitation.create({ data: input });
++  }
++
++  async findInvitationById(id: string): Promise<AuthInvitation | null> {
++    if (OrganizationRepository.missingId(id)) return null;
++    return this.prisma.authInvitation.findUnique({ where: { id } });
++  }
++
++  /** The latest pending, unexpired invitation for an email in an org. */
++  async findPendingInvitation(
++    organizationId: string,
++    email: string,
++  ): Promise<AuthInvitation | null> {
++    return this.prisma.authInvitation.findFirst({
++      where: {
++        organizationId,
++        email,
++        status: "pending",
++        expiresAt: { gt: new Date() },
++      },
++      orderBy: { createdAt: "desc" },
++    });
++  }
++
++  /** Pending invitations for an organization, newest first. */
++  async listPendingInvitations(
++    organizationId: string,
++  ): Promise<AuthInvitation[]> {
++    return this.prisma.authInvitation.findMany({
++      where: {
++        organizationId,
++        status: "pending",
++        expiresAt: { gt: new Date() },
++      },
++      orderBy: { createdAt: "desc" },
++    });
++  }
++
++  /**
++   * Accept an invitation: create the membership and close the invitation in
++   * one transaction. Either both happen or neither does.
++   */
++  async acceptInvitation(
++    invitationId: string,
++    userId: string,
++  ): Promise<OrganizationMembership> {
++    return this.prisma.$transaction(async (tx) => {
++      const invitation = await tx.authInvitation.findUnique({
++        where: { id: invitationId },
++      });
++      if (!invitation) {
++        throw new Error("Invitation not found");
++      }
++      const membership = await tx.organizationMembership.upsert({
++        where: {
++          organizationId_userId: {
++            organizationId: invitation.organizationId,
++            userId,
++          },
++        },
++        create: {
++          organizationId: invitation.organizationId,
++          userId,
++          role: invitation.role ?? "org:member",
++        },
++        update: { role: invitation.role ?? "org:member" },
++      });
++      await tx.authInvitation.update({
++        where: { id: invitationId },
++        data: { status: "accepted" },
++      });
++      return membership;
++    });
++  }
++
++  /**
++   * Cancel a pending invitation. Returns true when a pending invitation was
++   * actually cancelled; false when it was already gone or decided.
++   */
++  async revokeInvitation(invitationId: string): Promise<boolean> {
++    const { count } = await this.prisma.authInvitation.updateMany({
++      where: { id: invitationId, status: "pending" },
++      data: { status: "revoked" },
++    });
++    return count === 1;
++  }
++
++  /** Mark an invitation expired. Called when acceptance finds it past expiry. */
++  async expireInvitation(invitationId: string): Promise<void> {
++    await this.prisma.authInvitation.updateMany({
++      where: { id: invitationId, status: "pending" },
++      data: { status: "expired" },
++    });
++  }
+ }
+diff --git a/packages/database/src/database/repositories/user.repository.ts b/packages/database/src/database/repositories/user.repository.ts
+index 85cc638..c69907d 100644
+--- a/packages/database/src/database/repositories/user.repository.ts
++++ b/packages/database/src/database/repositories/user.repository.ts
+@@ -347,4 +347,98 @@ export class UserRepository {
+       },
+     });
+   }
++
++  /** Lookup by the enrolled auth email (unique). Blank email matches nothing. */
++  async findByAuthEmail(email: string): Promise<User | null> {
++    if (UserRepository.missingId(email)) return null;
++    return this.prisma.user.findUnique({
++      where: { authEmail: email },
++    });
++  }
++
++  /**
++   * Create an enrolled auth identity: the User row (with a verified primary
++   * UserEmail, since a staff-provisioned address is treated as verified, the
++   * same as a backend-created Clerk login) plus its credential AuthAccount,
++   * in one transaction. Either both rows exist or neither does.
++   *
++   * Throws DuplicateAuthEmailError when the auth email is already enrolled;
++   * callers map that to their identity-creation error. Every other failure
++   * propagates so a partial enrollment is never silently kept.
++   */
++  async createEnrolledIdentity(input: {
++    email: string;
++    firstName: string;
++    lastName: string;
++    passwordHash: string;
++  }): Promise<User> {
++    try {
++      return await this.prisma.$transaction(async (tx) => {
++        const user = await tx.user.create({
++          data: {
++            authEmail: input.email,
++            authName: `${input.firstName} ${input.lastName}`.trim(),
++            authEmailVerified: true,
++            firstName: input.firstName,
++            lastName: input.lastName,
++            freeCallTrial: false,
++            encryptionKey: this.generateEncryptionKey(),
++            emails: {
++              create: [
++                {
++                  email: input.email,
++                  isPrimary: true,
++                  status: "verified",
++                },
++              ],
++            },
++          },
++        });
++        await tx.authAccount.create({
++          data: {
++            userId: user.id,
++            providerId: "credential",
++            accountId: user.id,
++            passwordHash: input.passwordHash,
++          },
++        });
++        return user;
++      });
++    } catch (error) {
++      if (
++        error instanceof Prisma.PrismaClientKnownRequestError &&
++        error.code === "P2002"
++      ) {
++        throw new DuplicateAuthEmailError(input.email);
++      }
++      throw error;
++    }
++  }
++
++  /**
++   * Replace the credential password hash. Returns the number of credential
++   * accounts updated; 0 means the user has no credential identity and the
++   * caller must fail closed rather than assume a password was set.
++   */
++  async setCredentialPassword(
++    userId: string,
++    passwordHash: string,
++  ): Promise<number> {
++    const { count } = await this.prisma.authAccount.updateMany({
++      where: { userId, providerId: "credential" },
++      data: { passwordHash },
++    });
++    return count;
++  }
++}
++
++/**
++ * The auth email is already enrolled. Thrown instead of the raw Prisma P2002
++ * so callers outside this package do not have to read constraint metadata.
++ */
++export class DuplicateAuthEmailError extends Error {
++  constructor(readonly email: string) {
++    super(`Auth email already enrolled: ${email}`);
++    this.name = "DuplicateAuthEmailError";
++  }
+ }
 diff --git a/packages/platform/package.json b/packages/platform/package.json
 index aa9ebf7..0c35899 100644
 --- a/packages/platform/package.json
@@ -8264,6 +9075,28 @@ index aa9ebf7..0c35899 100644
    },
    "devDependencies": {
      "@nestjs/cli": "~11.0.0",
+diff --git a/packages/platform/src/auth/better-auth/credential-password.ts b/packages/platform/src/auth/better-auth/credential-password.ts
+new file mode 100644
+index 0000000..3f36fe4
+--- /dev/null
++++ b/packages/platform/src/auth/better-auth/credential-password.ts
+@@ -0,0 +1,16 @@
++import { hashPassword } from "better-auth/crypto";
++
++/**
++ * The pinned Better Auth password scheme (better-auth 1.7.7), used for
++ * server-side provisioning and password changes.
++ *
++ * Provisioning writes go through this primitive — never a hand-rolled hash —
++ * so a password set here always verifies through the runtime's own
++ * `sign-in/email` path. If the pinned Better Auth release ever changes its
++ * scheme, this module is the single place that must follow it.
++ */
++export async function hashCredentialPassword(
++  password: string,
++): Promise<string> {
++  return hashPassword(password);
++}
 diff --git a/packages/platform/src/auth/clerk/current.user.ts b/packages/platform/src/auth/clerk/current.user.ts
 deleted file mode 100644
 index bc7c065..0000000
@@ -9912,12 +10745,102 @@ index 0000000..fa594a0
 +  }
 +}
 diff --git a/packages/services/src/services/accounts/account-provisioning.service.spec.ts b/packages/services/src/services/accounts/account-provisioning.service.spec.ts
-index c96a4e5..ea29bc3 100644
+index c96a4e5..ac2a540 100644
 --- a/packages/services/src/services/accounts/account-provisioning.service.spec.ts
 +++ b/packages/services/src/services/accounts/account-provisioning.service.spec.ts
-@@ -75,14 +75,21 @@ function build(
-       },
+@@ -5,11 +5,8 @@ import "reflect-metadata";
+ import assert from "node:assert/strict";
+ import { describe, it } from "node:test";
+ import { ConflictException, Logger } from "@nestjs/common";
+-import {
+-  ClerkUserCreationError,
+-  type ClerkLogin,
+-  type NewClerkUser,
+-} from "@ringee/platform";
++import { apiConfiguration } from "@ringee/configuration";
++import { AuthIdentityError } from "../auth-identity.service";
+ import { AccountProvisioningService } from "./account-provisioning.service";
+ import {
+   TEMPORARY_PASSWORD_LENGTH,
+@@ -24,38 +21,49 @@ interface SentEmail {
+   cc?: string[];
+ }
+ 
+-/** Clerk, the demo-request store, the user sync and the inbox, in memory. */
++interface CreatedIdentity {
++  email: string;
++  firstName: string;
++  lastName: string;
++  password: string;
++}
++
++/** The neutral identity layer, the demo-request store and the inbox, in memory. */
+ function build(
+   over: {
+     openDemoRequest?: { id: string } | null;
+-    existingLogin?: ClerkLogin | null;
++    existingIdentity?: { id: string } | null;
+     createFails?: Error;
+     emailAnswer?: unknown;
+   } = {},
+ ) {
+-  const created: NewClerkUser[] = [];
+-  const passwordsSet: Array<{ clerkUserId: string; password: string }> = [];
+-  const closedRequests: Array<{ id: string; clerkUserId: string }> = [];
++  const created: CreatedIdentity[] = [];
++  const passwordsSet: Array<{ userId: string; password: string }> = [];
++  const closedRequests: Array<{ id: string; authUserId: string }> = [];
+   const emails: SentEmail[] = [];
+ 
+   const demoRequests = {
+     findLatestWithoutAccount: async () => over.openDemoRequest ?? null,
+-    recordManualAccount: async (id: string, clerkUserId: string) => {
+-      closedRequests.push({ id, clerkUserId });
++    recordManualAccount: async (id: string, authUserId: string) => {
++      closedRequests.push({ id, authUserId });
+       return true;
      },
+   };
+-  const users = {
+-    syncFromClerk: async (clerkUserId: string) => ({
+-      user: { id: `ringee-${clerkUserId}` },
+-      clerkUser: { privateMetadata: {} },
+-    }),
+-    linkRingeeIdToClerk: async () => undefined,
++  const identities = {
++    createIdentity: async (input: CreatedIdentity) => {
++      if (over.createFails) throw over.createFails;
++      created.push(input);
++      return { id: "user_auth_1" };
++    },
++    findIdentityByEmail: async () => over.existingIdentity ?? null,
++    setIdentityPassword: async (userId: string, password: string) => {
++      passwordsSet.push({ userId, password });
++    },
+   };
+ 
+   const service = new AccountProvisioningService(
+     demoRequests as never,
+-    users as never,
++    identities as never,
+   );
+   Object.assign(service, {
+     logger: Object.assign(new Logger("spec"), {
+@@ -63,26 +71,22 @@ function build(
+       warn: () => {},
+       error: () => {},
+     }),
+-    logins: {
+-      createUser: async (input: NewClerkUser) => {
+-        if (over.createFails) throw over.createFails;
+-        created.push(input);
+-        return { id: "user_clerk_1" };
+-      },
+-      findByEmail: async () => over.existingLogin ?? null,
+-      setPassword: async (clerkUserId: string, password: string) => {
+-        passwordsSet.push({ clerkUserId, password });
+-      },
+-    },
      email: {
 -      sendEmail: async (
 -        to: string,
@@ -9945,8 +10868,160 @@ index c96a4e5..ea29bc3 100644
        ) => {
          emails.push({ to, subject, html, fromName, cc });
          return over.emailAnswer ?? { data: { id: "email-1" }, error: null };
+@@ -108,14 +112,19 @@ describe("AccountProvisioningService.createAccount", () => {
+     assert.equal(created.length, 1);
+     assert.equal(created[0].email, "mluria@molusupply.com");
+     assert.equal(created[0].firstName, "Mordechai");
+-    assert.deepEqual(created[0].privateMetadata, {
+-      provisionedBy: "backoffice",
+-    });
++    assert.equal(created[0].lastName, "Luria");
+ 
+     assert.equal(emails.length, 1);
+     const [email] = emails;
+     assert.equal(email.to, "mluria@molusupply.com");
+-    assert.deepEqual(email.cc, ["edison@getringee.com"]);
++    // The credentials email copies the deployment-owned support address —
++    // never a third-party recipient.
++    assert.deepEqual(email.cc, [apiConfiguration.INTERNAL_SUPPORT_EMAIL]);
++    assert.ok(
++      !(email.cc ?? []).some((address) =>
++        address.includes("edison@getringee.com"),
++      ),
++    );
+     assert.equal(email.fromName, "Edison from Ringee");
+     assert.equal(email.subject, "Your Ringee account is ready");
+     assert.match(email.html, /Hi Mordechai,/);
+@@ -125,8 +134,8 @@ describe("AccountProvisioningService.createAccount", () => {
+     assert.doesNotMatch(email.html, /requesting a Ringee demo/);
+ 
+     assert.deepEqual(account, {
+-      userId: "ringee-user_clerk_1",
+-      clerkUserId: "user_clerk_1",
++      userId: "user_auth_1",
++      authUserId: "user_auth_1",
+       email: "mluria@molusupply.com",
+       emailSent: true,
+       temporaryPassword: null,
+@@ -142,7 +151,7 @@ describe("AccountProvisioningService.createAccount", () => {
+ 
+     assert.match(emails[0].html, /Thank you for requesting a Ringee demo/);
+     assert.deepEqual(closedRequests, [
+-      { id: "request-1", clerkUserId: "user_clerk_1" },
++      { id: "request-1", authUserId: "user_auth_1" },
+     ]);
+   });
+ 
+@@ -159,9 +168,9 @@ describe("AccountProvisioningService.createAccount", () => {
+ 
+   it("refuses an email that already has a login, and sends nothing", async () => {
+     const { service, emails } = build({
+-      createFails: new ClerkUserCreationError(
++      createFails: new AuthIdentityError(
+         "email_taken",
+-        "That email address is taken.",
++        "An account with this email already exists.",
+       ),
+     });
+ 
+@@ -176,45 +185,37 @@ describe("AccountProvisioningService.ensureDemoRequestLogin", () => {
+     email: "mluria@molusupply.com",
+     firstName: "Mordechai",
+     lastName: "Luria",
+-    clerkUserId: null,
++    authUserId: null,
+   };
+ 
+-  it("creates the login marked with the request it was made for", async () => {
++  it("creates the login for the request", async () => {
+     const { service, created } = build();
+ 
+     const login = await service.ensureDemoRequestLogin(REQUEST, "pw-1");
+ 
+-    assert.deepEqual(login, { kind: "created", clerkUserId: "user_clerk_1" });
+-    assert.deepEqual(created[0].privateMetadata, {
+-      provisionedBy: "demo_request",
+-      demoRequestId: "request-1",
+-    });
++    assert.deepEqual(login, { kind: "created", authUserId: "user_auth_1" });
+     assert.equal(created[0].password, "pw-1");
++    assert.equal(created[0].email, "mluria@molusupply.com");
+   });
+ 
+-  it("gives the login an earlier attempt made a new password instead of a second login", async () => {
+-    const { service, created, passwordsSet } = build({
+-      existingLogin: {
+-        id: "user_clerk_7",
+-        privateMetadata: {
+-          provisionedBy: "demo_request",
+-          demoRequestId: "request-1",
+-        },
+-      },
+-    });
++  it("gives the login an earlier attempt recorded a new password instead of a second login", async () => {
++    const { service, created, passwordsSet } = build();
+ 
+-    const login = await service.ensureDemoRequestLogin(REQUEST, "pw-2");
++    const login = await service.ensureDemoRequestLogin(
++      { ...REQUEST, authUserId: "user_auth_7" },
++      "pw-2",
++    );
+ 
+-    assert.deepEqual(login, { kind: "recovered", clerkUserId: "user_clerk_7" });
++    assert.deepEqual(login, { kind: "recovered", authUserId: "user_auth_7" });
+     assert.deepEqual(created, []);
+     assert.deepEqual(passwordsSet, [
+-      { clerkUserId: "user_clerk_7", password: "pw-2" },
++      { userId: "user_auth_7", password: "pw-2" },
+     ]);
+   });
+ 
+   it("never touches a login that was not made for this request", async () => {
+     const { service, created, passwordsSet } = build({
+-      existingLogin: { id: "user_clerk_9", privateMetadata: {} },
++      existingIdentity: { id: "user_auth_9" },
+     });
+ 
+     const login = await service.ensureDemoRequestLogin(REQUEST, "pw-3");
+@@ -224,18 +225,17 @@ describe("AccountProvisioningService.ensureDemoRequestLogin", () => {
+     assert.deepEqual(passwordsSet, []);
+   });
+ 
+-  it("uses the login already recorded on the request", async () => {
+-    const { service, passwordsSet } = build();
++  it("treats a race on the email as taken", async () => {
++    const { service } = build({
++      createFails: new AuthIdentityError(
++        "email_taken",
++        "An account with this email already exists.",
++      ),
++    });
+ 
+-    const login = await service.ensureDemoRequestLogin(
+-      { ...REQUEST, clerkUserId: "user_clerk_1" },
+-      "pw-4",
+-    );
++    const login = await service.ensureDemoRequestLogin(REQUEST, "pw-4");
+ 
+-    assert.deepEqual(login, { kind: "recovered", clerkUserId: "user_clerk_1" });
+-    assert.deepEqual(passwordsSet, [
+-      { clerkUserId: "user_clerk_1", password: "pw-4" },
+-    ]);
++    assert.deepEqual(login, { kind: "taken" });
+   });
+ });
+ 
+@@ -249,7 +249,7 @@ describe("generateTemporaryPassword", () => {
+       assert.match(password, /[A-Z]/);
+       assert.match(password, /[2-9]/);
+       assert.match(password, /[!#$%*+\-=?@]/);
+-      assert.doesNotMatch(password, /[01lIO<>&"'\s]/);
++      assert.doesNotMatch(password, /[01lIO<>&"'\\s]/);
+       seen.add(password);
+     }
+     assert.equal(seen.size, 200);
 diff --git a/packages/services/src/services/accounts/account-provisioning.service.ts b/packages/services/src/services/accounts/account-provisioning.service.ts
-index fb42ee1..4c16d8b 100644
+index fb42ee1..18c8b14 100644
 --- a/packages/services/src/services/accounts/account-provisioning.service.ts
 +++ b/packages/services/src/services/accounts/account-provisioning.service.ts
 @@ -1,3 +1,5 @@
@@ -9955,25 +11030,190 @@ index fb42ee1..4c16d8b 100644
  import {
    BadGatewayException,
    BadRequestException,
-@@ -11,7 +13,6 @@ import { DemoRequest, DemoRequestRepository } from "@ringee/database";
- import {
-   ClerkUserCreationError,
-   ClerkUserRepository,
+@@ -8,27 +10,13 @@ import {
+ } from "@nestjs/common";
+ import { apiConfiguration } from "@ringee/configuration";
+ import { DemoRequest, DemoRequestRepository } from "@ringee/database";
+-import {
+-  ClerkUserCreationError,
+-  ClerkUserRepository,
 -  ResendProvider,
-   wasEmailAccepted,
- } from "@ringee/platform";
- import { UserService } from "../user.service";
-@@ -67,7 +68,8 @@ export interface CredentialsEmailView {
+-  wasEmailAccepted,
+-} from "@ringee/platform";
+-import { UserService } from "../user.service";
++import { wasEmailAccepted } from "@ringee/platform";
++import { AuthIdentityError, AuthIdentityService } from "../auth-identity.service";
+ import { generateTemporaryPassword } from "./temporary-password";
+ 
+-/**
+- * Copied on every email Ringee sends a new account, or a demo requester about
+- * their request, so the team sees each one (LIFE-004, LIFE-005).
+- */
+-export const ACCOUNTS_CC_EMAIL = "edison@getringee.com";
+-
+ /** These emails are written in Edison's voice ("I have created your account"). */
+ export const ACCOUNTS_SENDER_NAME = "Edison from Ringee";
+ 
+-/** Who made a login, as recorded in its Clerk private metadata. */
+-export type ProvisionedBy = "backoffice" | "demo_request";
+-
+ export interface NewAccountInput {
+   firstName: string;
+   lastName: string;
+@@ -36,9 +24,10 @@ export interface NewAccountInput {
+ }
+ 
+ export interface CreatedAccount {
+-  /** The Ringee user, once its row exists (the Clerk webhook writes it too). */
++  /** The Ringee user. Set once its row exists. */
+   userId: string | null;
+-  clerkUserId: string;
++  /** The provider-neutral auth identity id (the User UUID). */
++  authUserId: string;
+   email: string;
+   /** Whether the credentials email was accepted by the provider. */
+   emailSent: boolean;
+@@ -47,7 +36,7 @@ export interface CreatedAccount {
+ }
+ 
+ export type DemoRequestLogin =
+-  | { kind: "created" | "recovered"; clerkUserId: string }
++  | { kind: "created" | "recovered"; authUserId: string }
+   /** The email already has a login that Ringee did not make for this request. */
+   | { kind: "taken" };
+ 
+@@ -67,15 +56,12 @@ export interface CredentialsEmailView {
  @Injectable()
  export class AccountProvisioningService {
    private readonly logger = new Logger(AccountProvisioningService.name);
 -  private readonly email = new ResendProvider();
+-  private readonly logins: Pick<
+-    typeof ClerkUserRepository,
+-    "createUser" | "findByEmail" | "setPassword"
+-  > = ClerkUserRepository;
 +  @InjectEmailService(EmailService)
 +  private readonly email!: EmailService;
-   private readonly logins: Pick<
-     typeof ClerkUserRepository,
-     "createUser" | "findByEmail" | "setPassword"
-@@ -197,15 +199,13 @@ export class AccountProvisioningService {
+ 
+   constructor(
+     private readonly demoRequests: DemoRequestRepository,
+-    private readonly users: UserService,
++    private readonly identities: AuthIdentityService,
+   ) {}
+ 
+   /**
+@@ -99,20 +85,19 @@ export class AccountProvisioningService {
+       person.email,
+     );
+     const password = generateTemporaryPassword();
+-    const provisionedBy: ProvisionedBy = "backoffice";
+ 
+-    let clerkUserId: string;
++    let authUserId: string;
+     try {
+-      ({ id: clerkUserId } = await this.logins.createUser({
++      ({ id: authUserId } = await this.identities.createIdentity({
+         ...person,
+         password,
+-        privateMetadata: { provisionedBy },
+       }));
+     } catch (error) {
+       throw toHttpException(error);
+     }
+ 
+-    const userId = await this.syncUser(clerkUserId);
++    // The identity creation already wrote the enrolled User row, so the
++    // backoffice can link to it at once.
+     const emailSent = await this.sendCredentials({
+       firstName: person.firstName,
+       email: person.email,
+@@ -122,7 +107,7 @@ export class AccountProvisioningService {
+ 
+     if (demoRequest) {
+       await this.demoRequests
+-        .recordManualAccount(demoRequest.id, clerkUserId)
++        .recordManualAccount(demoRequest.id, authUserId)
+         .catch((error: Error) =>
+           this.logger.warn(
+             `Could not close demo request ${demoRequest.id} with the new login: ${error.message}`,
+@@ -131,11 +116,11 @@ export class AccountProvisioningService {
+     }
+ 
+     this.logger.log(
+-      `Backoffice created Clerk user ${clerkUserId}; credentials email ${emailSent ? "sent" : "NOT sent"}`,
++      `Backoffice created login ${authUserId}; credentials email ${emailSent ? "sent" : "NOT sent"}`,
+     );
+     return {
+-      userId,
+-      clerkUserId,
++      userId: authUserId,
++      authUserId,
+       email: person.email,
+       emailSent,
+       temporaryPassword: emailSent ? null : password,
+@@ -144,47 +129,42 @@ export class AccountProvisioningService {
+ 
+   /**
+    * The login of an approved demo request, made at most once. A retry finds
+-   * the one an earlier attempt made — recorded on the request, or marked with
+-   * its id in Clerk — and gives it this password instead, which is safe
+-   * because the earlier one was never delivered. A login the email already
+-   * had is never touched.
++   * the login recorded on the request and gives it this password instead,
++   * which is safe because the earlier one was never delivered. A login the
++   * email already had — one Ringee did not make for this request — is never
++   * touched: the request escalates to the team instead.
+    */
+   async ensureDemoRequestLogin(
+     request: Pick<
+       DemoRequest,
+-      "id" | "email" | "firstName" | "lastName" | "clerkUserId"
++      "id" | "email" | "firstName" | "lastName" | "authUserId"
+     >,
+     password: string,
+   ): Promise<DemoRequestLogin> {
+-    if (request.clerkUserId) {
+-      await this.logins.setPassword(request.clerkUserId, password);
+-      return { kind: "recovered", clerkUserId: request.clerkUserId };
++    if (request.authUserId) {
++      await this.identities.setIdentityPassword(request.authUserId, password);
++      return { kind: "recovered", authUserId: request.authUserId };
+     }
+ 
+-    const existing = await this.logins.findByEmail(request.email);
++    const existing = await this.identities.findIdentityByEmail(request.email);
+     if (existing) {
+-      if (existing.privateMetadata.demoRequestId !== request.id) {
+-        return { kind: "taken" };
+-      }
+-      await this.logins.setPassword(existing.id, password);
+-      return { kind: "recovered", clerkUserId: existing.id };
++      // Not ours: another flow (backoffice, another request) owns this login.
++      // Never reset an unrelated user's password — escalate instead.
++      return { kind: "taken" };
+     }
+ 
+-    const provisionedBy: ProvisionedBy = "demo_request";
+     try {
+-      const { id } = await this.logins.createUser({
++      const { id } = await this.identities.createIdentity({
+         email: request.email,
+         firstName: request.firstName,
+         lastName: request.lastName,
+         password,
+-        privateMetadata: { provisionedBy, demoRequestId: request.id },
+       });
+-      await this.syncUser(id);
+-      return { kind: "created", clerkUserId: id };
++      return { kind: "created", authUserId: id };
+     } catch (error) {
+       // The email was taken between the lookup and the create.
+       if (
+-        error instanceof ClerkUserCreationError &&
++        error instanceof AuthIdentityError &&
+         error.reason === "email_taken"
+       ) {
+         return { kind: "taken" };
+@@ -197,36 +177,16 @@ export class AccountProvisioningService {
    async sendCredentials(view: CredentialsEmailView): Promise<boolean> {
      const { subject, html } = buildCredentialsEmail(view);
      const result: unknown = await this.email
@@ -9991,11 +11231,446 @@ index fb42ee1..4c16d8b 100644
 +        subject: subject,
 +        html: html,
 +        fromName: ACCOUNTS_SENDER_NAME,
-+        cc: [ACCOUNTS_CC_EMAIL],
++        cc: [apiConfiguration.INTERNAL_SUPPORT_EMAIL],
 +      })
        .catch((error: Error) => ({ error }));
      return wasEmailAccepted(result);
    }
+-
+-  /**
+-   * Write the Ringee user now instead of waiting for the Clerk webhook, so the
+-   * backoffice can link to it at once. Both paths are idempotent (LIFE-001);
+-   * when this one fails, the webhook still does it.
+-   */
+-  private async syncUser(clerkUserId: string): Promise<string | null> {
+-    try {
+-      const { user, clerkUser } = await this.users.syncFromClerk(clerkUserId);
+-      await this.users.linkRingeeIdToClerk(clerkUserId, clerkUser, user.id);
+-      return user.id;
+-    } catch (error) {
+-      this.logger.warn(
+-        `Could not sync new Clerk user ${clerkUserId} yet, leaving it to the webhook: ${(error as Error).message}`,
+-      );
+-      return null;
+-    }
+-  }
+ }
+ 
+ /**
+@@ -274,11 +234,14 @@ export function buildCredentialsEmail(view: CredentialsEmailView): {
+   return { subject: "Your Ringee account is ready", html };
+ }
+ 
+-/** Clerk's refusal, as the status the backoffice should see. */
++/** The identity layer's refusal, as the status the backoffice should see. */
+ function toHttpException(error: unknown): HttpException {
+-  if (!(error instanceof ClerkUserCreationError)) {
++  if (error instanceof HttpException) {
++    return error;
++  }
++  if (!(error instanceof AuthIdentityError)) {
+     return new BadGatewayException(
+-      `Clerk could not create the account: ${(error as Error)?.message ?? error}`,
++      `Could not create the account: ${(error as Error)?.message ?? error}`,
+     );
+   }
+   switch (error.reason) {
+@@ -287,10 +250,11 @@ function toHttpException(error: unknown): HttpException {
+         "An account with this email already exists.",
+       );
+     case "invalid_email":
++    case "invalid_name":
+       return new BadRequestException(error.message);
+     default:
+       return new BadGatewayException(
+-        `Clerk could not create the account: ${error.message}`,
++        `Could not create the account: ${error.message}`,
+       );
+   }
+ }
+diff --git a/packages/services/src/services/auth-identity.service.spec.ts b/packages/services/src/services/auth-identity.service.spec.ts
+new file mode 100644
+index 0000000..d0f778b
+--- /dev/null
++++ b/packages/services/src/services/auth-identity.service.spec.ts
+@@ -0,0 +1,204 @@
++/// <reference types="node" />
++
++import "reflect-metadata";
++
++import assert from "node:assert/strict";
++import { describe, it } from "node:test";
++import { DuplicateAuthEmailError } from "@ringee/database";
++import {
++  AuthIdentityError,
++  AuthIdentityService,
++} from "./auth-identity.service";
++
++interface CreatedInput {
++  email: string;
++  firstName: string;
++  lastName: string;
++  passwordHash: string;
++}
++
++/** The persistence layer, in memory. */
++function build(
++  over: {
++    authEmailTaken?: boolean;
++    findByAuthEmail?: { id: string } | null;
++    credentialAccounts?: number;
++  } = {},
++) {
++  const created: CreatedInput[] = [];
++  const passwordUpdates: Array<{ userId: string; passwordHash: string }> = [];
++  let revokedFor: string | null = null;
++
++  const users = {
++    findByAuthEmail: async (email: string) => {
++      if (over.findByAuthEmail !== undefined) return over.findByAuthEmail;
++      return null;
++    },
++    createEnrolledIdentity: async (input: CreatedInput) => {
++      if (over.authEmailTaken) throw new DuplicateAuthEmailError(input.email);
++      created.push(input);
++      return { id: "user-1" };
++    },
++    setCredentialPassword: async (userId: string, passwordHash: string) => {
++      passwordUpdates.push({ userId, passwordHash });
++      return over.credentialAccounts ?? 1;
++    },
++  };
++  const sessions = {
++    revokeAllForUser: async (userId: string) => {
++      revokedFor = userId;
++      return 3;
++    },
++  };
++
++  const service = new AuthIdentityService(users as never, sessions as never);
++  const revoked = () => revokedFor;
++  return { service, created, passwordUpdates, revoked };
++}
++
++describe("AuthIdentityService.createIdentity", () => {
++  it("normalizes the email and stores a hash, never the password", async () => {
++    const { service, created } = build();
++
++    const ref = await service.createIdentity({
++      email: "  Ada@Example.COM ",
++      firstName: "Ada",
++      lastName: "Lovelace",
++      password: "correct-horse-123",
++    });
++
++    assert.deepEqual(ref, { id: "user-1" });
++    assert.equal(created.length, 1);
++    assert.equal(created[0].email, "ada@example.com");
++    assert.equal(created[0].firstName, "Ada");
++    assert.equal(created[0].lastName, "Lovelace");
++    assert.notEqual(created[0].passwordHash, "correct-horse-123");
++    assert.ok(created[0].passwordHash.length > 32);
++  });
++
++  it("rejects a malformed email", async () => {
++    const { service } = build();
++    await assert.rejects(
++      service.createIdentity({
++        email: "not-an-email",
++        firstName: "Ada",
++        lastName: "Lovelace",
++        password: "correct-horse-123",
++      }),
++      (error: unknown) =>
++        error instanceof AuthIdentityError && error.reason === "invalid_email",
++    );
++  });
++
++  it("rejects an empty name", async () => {
++    const { service } = build();
++    await assert.rejects(
++      service.createIdentity({
++        email: "ada@example.com",
++        firstName: "  ",
++        lastName: "Lovelace",
++        password: "correct-horse-123",
++      }),
++      (error: unknown) =>
++        error instanceof AuthIdentityError && error.reason === "invalid_name",
++    );
++  });
++
++  it("rejects a password below the policy", async () => {
++    const { service, created } = build();
++    await assert.rejects(
++      service.createIdentity({
++        email: "ada@example.com",
++        firstName: "Ada",
++        lastName: "Lovelace",
++        password: "short",
++      }),
++      (error: unknown) =>
++        error instanceof AuthIdentityError &&
++        error.reason === "password_rejected",
++    );
++    assert.deepEqual(created, []);
++  });
++
++  it("maps an enrolled email to email_taken", async () => {
++    const { service } = build({ authEmailTaken: true });
++    await assert.rejects(
++      service.createIdentity({
++        email: "ada@example.com",
++        firstName: "Ada",
++        lastName: "Lovelace",
++        password: "correct-horse-123",
++      }),
++      (error: unknown) =>
++        error instanceof AuthIdentityError && error.reason === "email_taken",
++    );
++  });
++});
++
++describe("AuthIdentityService.findIdentityByEmail", () => {
++  it("normalizes before lookup and returns the id", async () => {
++    const seen: string[] = [];
++    const users = {
++      findByAuthEmail: async (email: string) => {
++        seen.push(email);
++        return { id: "user-9" };
++      },
++    };
++    const service = new AuthIdentityService(users as never, {} as never);
++
++    assert.deepEqual(await service.findIdentityByEmail(" Ada@Example.COM "), {
++      id: "user-9",
++    });
++    assert.deepEqual(seen, ["ada@example.com"]);
++  });
++
++  it("returns null when no identity owns the email", async () => {
++    const { service } = build();
++    assert.equal(await service.findIdentityByEmail("nobody@example.com"), null);
++  });
++});
++
++describe("AuthIdentityService.setIdentityPassword", () => {
++  it("hashes, stores and revokes other sessions", async () => {
++    const { service, passwordUpdates, revoked } = build();
++
++    await service.setIdentityPassword("user-1", "new-password-123");
++
++    assert.equal(passwordUpdates.length, 1);
++    assert.equal(passwordUpdates[0].userId, "user-1");
++    assert.notEqual(passwordUpdates[0].passwordHash, "new-password-123");
++    assert.equal(revoked(), "user-1");
++  });
++
++  it("fails closed when the user has no credential identity", async () => {
++    const { service, passwordUpdates } = build({ credentialAccounts: 0 });
++    await assert.rejects(
++      service.setIdentityPassword("user-1", "new-password-123"),
++      (error: unknown) =>
++        error instanceof AuthIdentityError &&
++        error.reason === "no_credential",
++    );
++    // The hash was computed but nothing was stored and no sessions touched.
++    assert.equal(passwordUpdates.length, 1);
++  });
++
++  it("rejects a password below the policy before touching storage", async () => {
++    const { service, passwordUpdates, revoked } = build();
++    await assert.rejects(
++      service.setIdentityPassword("user-1", "short"),
++      (error: unknown) =>
++        error instanceof AuthIdentityError &&
++        error.reason === "password_rejected",
++    );
++    assert.deepEqual(passwordUpdates, []);
++    assert.equal(revoked(), null);
++  });
++});
++
++describe("AuthIdentityService.revokeIdentitySessions", () => {
++  it("delegates to the session store", async () => {
++    const { service, revoked } = build();
++    assert.equal(await service.revokeIdentitySessions("user-1"), 3);
++    assert.equal(revoked(), "user-1");
++  });
++});
+diff --git a/packages/services/src/services/auth-identity.service.ts b/packages/services/src/services/auth-identity.service.ts
+new file mode 100644
+index 0000000..3dc415c
+--- /dev/null
++++ b/packages/services/src/services/auth-identity.service.ts
+@@ -0,0 +1,167 @@
++import { Injectable, Logger } from "@nestjs/common";
++import {
++  AuthSessionRepository,
++  DuplicateAuthEmailError,
++  UserRepository,
++} from "@ringee/database";
++import { hashCredentialPassword, NewsletterService } from "@ringee/platform";
++
++/** Why an auth identity operation was refused. */
++export type AuthIdentityFailure =
++  | "email_taken"
++  | "invalid_email"
++  | "invalid_name"
++  | "password_rejected"
++  | "no_credential"
++  | "unknown";
++
++export class AuthIdentityError extends Error {
++  constructor(
++    readonly reason: AuthIdentityFailure,
++    message: string,
++  ) {
++    super(message);
++    this.name = "AuthIdentityError";
++  }
++}
++
++export interface NewAuthIdentity {
++  email: string;
++  firstName: string;
++  lastName: string;
++  password: string;
++}
++
++/** A provisioned login, as the neutral auth identity id (the User UUID). */
++export interface AuthIdentityRef {
++  id: string;
++}
++
++/** Minimum password length, matching the pinned Better Auth default policy. */
++const MIN_PASSWORD_LENGTH = 8;
++
++/**
++ * Provider-neutral auth identity management (LIFE-005).
++ *
++ * This is the seam where the old Clerk-backed provisioning used to live:
++ * creating logins, finding them by email, replacing passwords, and revoking
++ * sessions. The identity itself is Ringee-owned — the User row plus its
++ * credential AuthAccount — so there is no external provider to synchronize
++ * with. Passwords are hashed with the pinned Better Auth scheme (via the
++ * platform primitive), so a password set here verifies through the runtime's
++ * own sign-in path.
++ */
++@Injectable()
++export class AuthIdentityService {
++  private readonly logger = new Logger(AuthIdentityService.name);
++
++  constructor(
++    private readonly users: UserRepository,
++    private readonly sessions: AuthSessionRepository,
++  ) {}
++
++  /** Normalized the way the auth runtime matches emails. */
++  private static normalizeEmail(email: string): string {
++    return email.trim().toLowerCase();
++  }
++
++  private static validEmail(email: string): boolean {
++    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
++  }
++
++  /**
++   * Create a login for a real person. The email must be well-formed and not
++   * already enrolled, the name must be real and nonempty, and the password
++   * must satisfy the policy. Either the identity is fully created (user row,
++   * primary email row, credential account) or nothing is.
++   */
++  async createIdentity(input: NewAuthIdentity): Promise<AuthIdentityRef> {
++    const email = AuthIdentityService.normalizeEmail(input.email);
++    const firstName = input.firstName.trim();
++    const lastName = input.lastName.trim();
++    if (!AuthIdentityService.validEmail(email)) {
++      throw new AuthIdentityError(
++        "invalid_email",
++        `Invalid email address: ${input.email}`,
++      );
++    }
++    if (!firstName || !lastName) {
++      throw new AuthIdentityError(
++        "invalid_name",
++        "First and last name are required.",
++      );
++    }
++    if (input.password.length < MIN_PASSWORD_LENGTH) {
++      throw new AuthIdentityError(
++        "password_rejected",
++        "The password does not satisfy the password policy.",
++      );
++    }
++
++    try {
++      const user = await this.users.createEnrolledIdentity({
++        email,
++        firstName,
++        lastName,
++        passwordHash: await hashCredentialPassword(input.password),
++      });
++      // Best-effort, as before: provisioning never fails on the newsletter.
++      NewsletterService.register(email).catch((error: Error) =>
++        this.logger.warn(`Newsletter registration failed: ${error.message}`),
++      );
++      return { id: user.id };
++    } catch (error) {
++      if (error instanceof DuplicateAuthEmailError) {
++        throw new AuthIdentityError(
++          "email_taken",
++          "An account with this email already exists.",
++        );
++      }
++      throw new AuthIdentityError(
++        "unknown",
++        `Could not create the login: ${(error as Error)?.message ?? error}`,
++      );
++    }
++  }
++
++  /** The enrolled identity owning an email address, if there is one. */
++  async findIdentityByEmail(email: string): Promise<AuthIdentityRef | null> {
++    const user = await this.users.findByAuthEmail(
++      AuthIdentityService.normalizeEmail(email),
++    );
++    return user ? { id: user.id } : null;
++  }
++
++  /**
++   * Replace a login's password and revoke its sessions everywhere else, the
++   * way the old provider did on a password change. Fails closed when the user
++   * has no credential identity rather than pretending a password was set.
++   */
++  async setIdentityPassword(userId: string, password: string): Promise<void> {
++    if (password.length < MIN_PASSWORD_LENGTH) {
++      throw new AuthIdentityError(
++        "password_rejected",
++        "The password does not satisfy the password policy.",
++      );
++    }
++    const updated = await this.users.setCredentialPassword(
++      userId,
++      await hashCredentialPassword(password),
++    );
++    if (updated === 0) {
++      throw new AuthIdentityError(
++        "no_credential",
++        "The user has no credential identity to set a password on.",
++      );
++    }
++    await this.revokeIdentitySessions(userId);
++  }
++
++  /**
++   * Revoke every session for a user. Deleting the rows is the revocation: the
++   * session reader only accepts rows it can find. Returns the count revoked.
++   */
++  async revokeIdentitySessions(userId: string): Promise<number> {
++    return this.sessions.revokeAllForUser(userId);
++  }
++}
 diff --git a/packages/services/src/services/billing-notification.service.ts b/packages/services/src/services/billing-notification.service.ts
 index e646e64..a6b7fb9 100644
 --- a/packages/services/src/services/billing-notification.service.ts
@@ -10166,7 +11841,7 @@ index 69e1944..0290226 100644
        result &&
        typeof result === "object" &&
 diff --git a/packages/services/src/services/demo-requests/demo-request-emails.ts b/packages/services/src/services/demo-requests/demo-request-emails.ts
-index c96d1ff..d3d4cec 100644
+index c96d1ff..d109199 100644
 --- a/packages/services/src/services/demo-requests/demo-request-emails.ts
 +++ b/packages/services/src/services/demo-requests/demo-request-emails.ts
 @@ -1,10 +1,11 @@
@@ -10182,11 +11857,76 @@ index c96d1ff..d3d4cec 100644
  
  /** What the requester submitted, as the emails show it. */
  export interface DemoRequestDetails {
+@@ -94,17 +95,17 @@ export function buildDetailsRequestEmail(
+  * reviewed.
+  */
+ export function buildManualReviewEmail(
+-  request: DemoRequestDetails & { clerkUserId: string | null },
++  request: DemoRequestDetails & { authUserId: string | null },
+   reason: string,
+   review: { summary: string; issues: ProfileIssue[] } | null,
+ ): { subject: string; html: string } {
+   const fullName = `${request.firstName} ${request.lastName}`.trim();
+-  const login = request.clerkUserId
++  const login = request.authUserId
+     ? `<p>
+-        A login already exists for them (Clerk user
+-        <code>${escapeHtml(request.clerkUserId)}</code>), but its credentials
+-        were not delivered. Set a new password for it in Clerk and send it to
+-        them.
++        A login already exists for them (login
++        <code>${escapeHtml(request.authUserId)}</code>), but its credentials
++        were not delivered. Set a new password for it in the backoffice and
++        send it to them.
+       </p>`
+     : "";
+   const verdict = review
 diff --git a/packages/services/src/services/demo-requests/demo-request-review.service.spec.ts b/packages/services/src/services/demo-requests/demo-request-review.service.spec.ts
-index ab6d7c5..3342289 100644
+index ab6d7c5..90f920e 100644
 --- a/packages/services/src/services/demo-requests/demo-request-review.service.spec.ts
 +++ b/packages/services/src/services/demo-requests/demo-request-review.service.spec.ts
-@@ -185,14 +185,21 @@ function build(
+@@ -5,6 +5,7 @@ import "reflect-metadata";
+ import assert from "node:assert/strict";
+ import { describe, it } from "node:test";
+ import { Logger } from "@nestjs/common";
++import { apiConfiguration } from "@ringee/configuration";
+ import type { DemoRequest } from "@ringee/database";
+ import type { AiStreamEvent } from "@ringee/platform";
+ import type {
+@@ -34,7 +35,7 @@ const VERIFIED: DemoRequest = {
+   reviewedAt: null,
+   statusReason: null,
+   teamNotifiedAt: null,
+-  clerkUserId: null,
++  authUserId: null,
+   accountCreatedAt: null,
+   notifiedAt: null,
+   createdAt: new Date("2026-10-10T12:00:00Z"),
+@@ -100,11 +101,11 @@ function build(
+       });
+       return true;
+     },
+-    recordAccount: async (_id: string, clerkUserId: string) => {
+-      if (row().clerkUserId) return false;
++    recordAccount: async (_id: string, authUserId: string) => {
++      if (row().authUserId) return false;
+       update({
+         status: "account_created",
+-        clerkUserId,
++        authUserId,
+         accountCreatedAt: new Date(),
+       });
+       return true;
+@@ -160,7 +161,7 @@ function build(
+   const accounts = {
+     ensureDemoRequestLogin: async (request: DemoRequest, password: string) => {
+       logins.push({ request: { ...request }, password });
+-      return over.login ?? { kind: "created", clerkUserId: "user_clerk_1" };
++      return over.login ?? { kind: "created", authUserId: "user-1" };
+     },
+     sendCredentials: async (view: CredentialsEmailView) => {
+       const accepted = answers.length ? answers.shift()! : true;
+@@ -185,14 +186,21 @@ function build(
        error: () => {},
      }),
      email: {
@@ -10216,8 +11956,88 @@ index ab6d7c5..3342289 100644
        ) => {
          const accepted = emailAnswers.length ? emailAnswers.shift()! : true;
          emails.push({ to, subject, html, fromName, cc });
+@@ -213,7 +221,7 @@ describe("DemoRequestReviewService.review", () => {
+     await service.review(VERIFIED.id);
+ 
+     assert.equal(row().status, "account_created");
+-    assert.equal(row().clerkUserId, "user_clerk_1");
++    assert.equal(row().authUserId, "user-1");
+     assert.ok(row().notifiedAt);
+     assert.equal(logins.length, 1);
+     assert.equal(credentials.length, 1);
+@@ -235,7 +243,7 @@ describe("DemoRequestReviewService.review", () => {
+     assert.equal(emails.length, 1);
+     const [email] = emails;
+     assert.equal(email.to, "mordechai@gmail.com");
+-    assert.deepEqual(email.cc, ["edison@getringee.com"]);
++    assert.deepEqual(email.cc, [apiConfiguration.INTERNAL_SUPPORT_EMAIL]);
+     assert.equal(email.fromName, "Edison from Ringee");
+     assert.match(email.html, /Thank you for requesting a Ringee demo/);
+     assert.match(email.html, /Work email \(mordechai@gmail\.com\)/);
+@@ -308,7 +316,7 @@ describe("DemoRequestReviewService.review", () => {
+     await service.review(VERIFIED.id);
+ 
+     assert.equal(logins.length, 2);
+-    assert.equal(logins[1].request.clerkUserId, "user_clerk_1");
++    assert.equal(logins[1].request.authUserId, "user-1");
+     assert.notEqual(logins[1].password, logins[0].password);
+     assert.deepEqual(
+       credentials.map((sent) => sent.accepted),
+@@ -330,7 +338,7 @@ describe("DemoRequestReviewService.review", () => {
+     assert.equal(credentials.length, 0);
+     assert.equal(emails.length, 1);
+     assert.equal(emails[0].to, DEMO_REQUEST_TEAM_EMAIL);
+-    assert.deepEqual(emails[0].cc, ["edison@getringee.com"]);
++    assert.deepEqual(emails[0].cc, [apiConfiguration.INTERNAL_SUPPORT_EMAIL]);
+     assert.match(emails[0].subject, /needs manual review — Mordechai Luria/);
+   });
+ 
+@@ -355,7 +363,7 @@ describe("DemoRequestReviewService.review", () => {
+     const { service, emails, credentials, prompts } = build({
+       request: {
+         status: "account_created",
+-        clerkUserId: "user_clerk_1",
++        authUserId: "user-1",
+         notifiedAt: new Date(),
+       },
+     });
+@@ -384,13 +392,13 @@ describe("DemoRequestReviewService.escalate", () => {
+   it("alerts the team once, however often it is called", async () => {
+     const { service, row, emails } = build();
+ 
+-    await service.escalate(VERIFIED.id, "Clerk was unavailable");
+-    await service.escalate(VERIFIED.id, "Clerk was unavailable");
++    await service.escalate(VERIFIED.id, "the account service was unavailable");
++    await service.escalate(VERIFIED.id, "the account service was unavailable");
+ 
+     assert.equal(row().status, "manual_review");
+     assert.ok(row().teamNotifiedAt);
+     assert.equal(emails.length, 1);
+-    assert.match(emails[0].html, /Clerk was unavailable/);
++    assert.match(emails[0].html, /the account service was unavailable/);
+   });
+ 
+   it("retries a refused team alert until it is accepted, handing over once", async () => {
+@@ -399,7 +407,7 @@ describe("DemoRequestReviewService.escalate", () => {
+     });
+ 
+     await assert.rejects(
+-      service.escalate(VERIFIED.id, "Clerk was unavailable"),
++      service.escalate(VERIFIED.id, "the account service was unavailable"),
+       /team alert .* was not accepted/,
+     );
+     assert.equal(row().status, "manual_review");
+@@ -410,7 +418,7 @@ describe("DemoRequestReviewService.escalate", () => {
+     assert.equal(emails.length, 2);
+     assert.ok(row().teamNotifiedAt);
+     // The alert carries why it was handed over, not the retry's reason.
+-    assert.match(emails[1].html, /Clerk was unavailable/);
++    assert.match(emails[1].html, /the account service was unavailable/);
+     assert.equal(
+       warnings.filter((warning) => /handed to the team/.test(warning)).length,
+       1,
 diff --git a/packages/services/src/services/demo-requests/demo-request-review.service.ts b/packages/services/src/services/demo-requests/demo-request-review.service.ts
-index e4623ef..c389f55 100644
+index e4623ef..3d55df6 100644
 --- a/packages/services/src/services/demo-requests/demo-request-review.service.ts
 +++ b/packages/services/src/services/demo-requests/demo-request-review.service.ts
 @@ -1,3 +1,5 @@
@@ -10226,7 +12046,7 @@ index e4623ef..c389f55 100644
  import { Injectable, Logger } from "@nestjs/common";
  import { apiConfiguration } from "@ringee/configuration";
  import { DemoRequest, DemoRequestRepository, Prisma } from "@ringee/database";
-@@ -6,7 +8,6 @@ import {
+@@ -6,11 +8,9 @@ import {
    AiStreamEvent,
    AiToolDefinition,
    AiUsage,
@@ -10234,7 +12054,11 @@ index e4623ef..c389f55 100644
    wasEmailAccepted,
  } from "@ringee/platform";
  import {
-@@ -147,7 +148,8 @@ links. Write in English.`;
+-  ACCOUNTS_CC_EMAIL,
+   ACCOUNTS_SENDER_NAME,
+   AccountProvisioningService,
+ } from "../accounts/account-provisioning.service";
+@@ -147,7 +147,8 @@ links. Write in English.`;
  @Injectable()
  export class DemoRequestReviewService {
    private readonly logger = new Logger(DemoRequestReviewService.name);
@@ -10244,7 +12068,27 @@ index e4623ef..c389f55 100644
    private readonly probes: ProfileProbes = liveProfileProbes;
  
    constructor(
-@@ -332,15 +334,13 @@ export class DemoRequestReviewService {
+@@ -258,8 +259,8 @@ export class DemoRequestReviewService {
+       );
+       return;
+     }
+-    if (!request.clerkUserId) {
+-      await this.requests.recordAccount(request.id, login.clerkUserId);
++    if (!request.authUserId) {
++      await this.requests.recordAccount(request.id, login.authUserId);
+     }
+ 
+     const sent = await this.accounts.sendCredentials({
+@@ -276,7 +277,7 @@ export class DemoRequestReviewService {
+     }
+     await this.requests.markNotified(request.id);
+     this.logger.log(
+-      `Demo request ${request.id}: account ${login.kind} (Clerk user ${login.clerkUserId}), credentials emailed`,
++      `Demo request ${request.id}: account ${login.kind} (login ${login.authUserId}), credentials emailed`,
+     );
+   }
+ 
+@@ -332,15 +333,13 @@ export class DemoRequestReviewService {
      senderName: string,
    ): Promise<boolean> {
      const result: unknown = await this.email
@@ -10262,7 +12106,7 @@ index e4623ef..c389f55 100644
 +        subject: subject,
 +        html: html,
 +        fromName: senderName,
-+        cc: [ACCOUNTS_CC_EMAIL],
++        cc: [apiConfiguration.INTERNAL_SUPPORT_EMAIL],
 +      })
        .catch((error: Error) => ({ error }));
      return wasEmailAccepted(result);
@@ -11317,7 +13161,7 @@ index f498d4c..cf33061 100644
        if (wasAccepted(result)) return true;
        const delay = this.retryDelaysMs[attempt];
 diff --git a/packages/services/src/services/index.ts b/packages/services/src/services/index.ts
-index 9dc76b6..d29ec2b 100644
+index 9dc76b6..7313fa9 100644
 --- a/packages/services/src/services/index.ts
 +++ b/packages/services/src/services/index.ts
 @@ -1,4 +1,5 @@
@@ -11326,13 +13170,14 @@ index 9dc76b6..d29ec2b 100644
  export * from "./services.module";
  export * from "./chat.auth.service";
  export * from "./call.service";
-@@ -59,3 +60,6 @@ export * from "./voice-agents";
+@@ -59,3 +60,7 @@ export * from "./voice-agents";
  
  export * from "./external-carrier/external-carrier.service";
  export * from "./inbound-routing";
 +
 +export * from "./email.service";
 +export * from "./auth-principal.service";
++export * from "./auth-identity.service";
 diff --git a/packages/services/src/services/number.purchased.service.ts b/packages/services/src/services/number.purchased.service.ts
 index e18da01..074e750 100644
 --- a/packages/services/src/services/number.purchased.service.ts
@@ -11416,6 +13261,673 @@ index e18da01..074e750 100644
    }
  }
  
+diff --git a/packages/services/src/services/organization.service.spec.ts b/packages/services/src/services/organization.service.spec.ts
+new file mode 100644
+index 0000000..bf8589e
+--- /dev/null
++++ b/packages/services/src/services/organization.service.spec.ts
+@@ -0,0 +1,426 @@
++/// <reference types="node" />
++
++import "reflect-metadata";
++
++import assert from "node:assert/strict";
++import { describe, it } from "node:test";
++import {
++  ConflictException,
++  ForbiddenException,
++  NotFoundException,
++} from "@nestjs/common";
++import { OrganizationService } from "./organization.service";
++
++interface MembershipRow {
++  organizationId: string;
++  userId: string;
++  role: string;
++}
++
++interface InvitationRow {
++  id: string;
++  organizationId: string;
++  email: string;
++  role: string;
++  status: string;
++  expiresAt: Date;
++}
++
++function build(
++  over: {
++    memberships?: MembershipRow[];
++    usersByAuthEmail?: Record<string, { id: string }>;
++    usersById?: Record<string, { id: string; authEmail: string; authEmailVerified: boolean }>;
++    invitations?: InvitationRow[];
++  } = {},
++) {
++  const memberships: MembershipRow[] = [...(over.memberships ?? [])];
++  const invitations: InvitationRow[] = [...(over.invitations ?? [])];
++  const usersByAuthEmail = over.usersByAuthEmail ?? {};
++  const usersById = over.usersById ?? {};
++
++  const organizationRepository = {
++    addMembershipByIds: async (
++      organizationId: string,
++      userId: string,
++      role: string,
++    ) => {
++      const existing = memberships.find(
++        (m) => m.organizationId === organizationId && m.userId === userId,
++      );
++      if (existing) {
++        existing.role = role;
++        return existing;
++      }
++      const row = { organizationId, userId, role };
++      memberships.push(row);
++      return row;
++    },
++    removeMembershipByIds: async (organizationId: string, userId: string) => {
++      const index = memberships.findIndex(
++        (m) => m.organizationId === organizationId && m.userId === userId,
++      );
++      if (index >= 0) memberships.splice(index, 1);
++    },
++    findMembership: async (organizationId: string, userId: string) =>
++      memberships.find(
++        (m) => m.organizationId === organizationId && m.userId === userId,
++      ) ?? null,
++    countAdmins: async (organizationId: string) =>
++      memberships.filter(
++        (m) => m.organizationId === organizationId && m.role === "org:admin",
++      ).length,
++    createInvitation: async (input: {
++      organizationId: string;
++      inviterId: string;
++      email: string;
++      role: string;
++      expiresAt: Date;
++    }) => {
++      const row = {
++        id: `inv-${invitations.length + 1}`,
++        status: "pending",
++        ...input,
++      };
++      invitations.push(row);
++      return row;
++    },
++    findInvitationById: async (id: string) =>
++      invitations.find((i) => i.id === id) ?? null,
++    findPendingInvitation: async (organizationId: string, email: string) =>
++      invitations.find(
++        (i) =>
++          i.organizationId === organizationId &&
++          i.email === email &&
++          i.status === "pending" &&
++          i.expiresAt.getTime() > Date.now(),
++      ) ?? null,
++    listPendingInvitations: async (organizationId: string) =>
++      invitations.filter(
++        (i) =>
++          i.organizationId === organizationId &&
++          i.status === "pending" &&
++          i.expiresAt.getTime() > Date.now(),
++      ),
++    acceptInvitation: async (invitationId: string, userId: string) => {
++      const invitation = invitations.find((i) => i.id === invitationId)!;
++      invitation.status = "accepted";
++      const row = {
++        organizationId: invitation.organizationId,
++        userId,
++        role: invitation.role,
++      };
++      memberships.push(row);
++      return row;
++    },
++    revokeInvitation: async (invitationId: string) => {
++      const invitation = invitations.find((i) => i.id === invitationId);
++      if (invitation && invitation.status === "pending") {
++        invitation.status = "revoked";
++        return true;
++      }
++      return false;
++    },
++    expireInvitation: async (invitationId: string) => {
++      const invitation = invitations.find((i) => i.id === invitationId);
++      if (invitation) invitation.status = "expired";
++    },
++  };
++  const userRepository = {
++    findByAuthEmail: async (email: string) => usersByAuthEmail[email] ?? null,
++    findById: async (id: string) => usersById[id] ?? null,
++  };
++
++  const service = new OrganizationService(
++    organizationRepository as never,
++    userRepository as never,
++    {} as never,
++  );
++  return { service, memberships, invitations };
++}
++
++const ADMIN = { organizationId: "org-1", userId: "admin-1", role: "org:admin" };
++
++describe("OrganizationService.addMember", () => {
++  it("rejects unsupported roles", async () => {
++    const { service, memberships } = build({ memberships: [ADMIN] });
++    await assert.rejects(
++      service.addMember("org-1", "user-2", "owner"),
++      ConflictException,
++    );
++    assert.deepEqual(memberships, [ADMIN]);
++  });
++
++  it("adds the membership with a supported role", async () => {
++    const { service, memberships } = build({ memberships: [ADMIN] });
++    await service.addMember("org-1", "user-2", "org:member");
++    assert.deepEqual(memberships, [
++      ADMIN,
++      { organizationId: "org-1", userId: "user-2", role: "org:member" },
++    ]);
++  });
++});
++
++describe("OrganizationService.removeMember", () => {
++  it("refuses to remove the last administrator", async () => {
++    const { service, memberships } = build({ memberships: [ADMIN] });
++    await assert.rejects(
++      service.removeMember("org-1", "admin-1"),
++      ForbiddenException,
++    );
++    assert.deepEqual(memberships, [ADMIN]);
++  });
++
++  it("removes an administrator when another remains", async () => {
++    const { service, memberships } = build({
++      memberships: [
++        ADMIN,
++        { organizationId: "org-1", userId: "admin-2", role: "org:admin" },
++      ],
++    });
++    await service.removeMember("org-1", "admin-1");
++    assert.deepEqual(memberships, [
++      { organizationId: "org-1", userId: "admin-2", role: "org:admin" },
++    ]);
++  });
++
++  it("removes a plain member without an admin check", async () => {
++    const { service, memberships } = build({
++      memberships: [
++        ADMIN,
++        { organizationId: "org-1", userId: "user-2", role: "org:member" },
++      ],
++    });
++    await service.removeMember("org-1", "user-2");
++    assert.deepEqual(memberships, [ADMIN]);
++  });
++
++  it("is a no-op for a non-member", async () => {
++    const { service, memberships } = build({ memberships: [ADMIN] });
++    await service.removeMember("org-1", "ghost");
++    assert.deepEqual(memberships, [ADMIN]);
++  });
++});
++
++describe("OrganizationService.inviteMember", () => {
++  it("forbids non-admins from inviting", async () => {
++    const { service, invitations } = build({
++      memberships: [
++        ADMIN,
++        { organizationId: "org-1", userId: "user-2", role: "org:member" },
++      ],
++    });
++    await assert.rejects(
++      service.inviteMember("org-1", "user-2", "new@example.com", "org:member"),
++      ForbiddenException,
++    );
++    assert.deepEqual(invitations, []);
++  });
++
++  it("rejects unsupported roles", async () => {
++    const { service } = build({ memberships: [ADMIN] });
++    await assert.rejects(
++      service.inviteMember("org-1", "admin-1", "new@example.com", "owner"),
++      ConflictException,
++    );
++  });
++
++  it("adds an enrolled user directly", async () => {
++    const { service, memberships } = build({
++      memberships: [ADMIN],
++      usersByAuthEmail: { "new@example.com": { id: "user-3" } },
++    });
++    const outcome = await service.inviteMember(
++      "org-1",
++      "admin-1",
++      "New@Example.com",
++      "org:member",
++    );
++    assert.deepEqual(outcome, { kind: "added" });
++    assert.ok(
++      memberships.some(
++        (m) => m.userId === "user-3" && m.role === "org:member",
++      ),
++    );
++  });
++
++  it("refuses to invite someone who is already a member", async () => {
++    const { service } = build({
++      memberships: [
++        ADMIN,
++        { organizationId: "org-1", userId: "user-3", role: "org:member" },
++      ],
++      usersByAuthEmail: { "new@example.com": { id: "user-3" } },
++    });
++    await assert.rejects(
++      service.inviteMember("org-1", "admin-1", "new@example.com", "org:member"),
++      ConflictException,
++    );
++  });
++
++  it("records a pending invitation for an unknown email", async () => {
++    const { service, invitations, memberships } = build({ memberships: [ADMIN] });
++    const outcome = await service.inviteMember(
++      "org-1",
++      "admin-1",
++      "stranger@example.com",
++      "org:member",
++    );
++    assert.equal(outcome.kind, "invited");
++    assert.equal(invitations.length, 1);
++    assert.equal(invitations[0].status, "pending");
++    assert.equal(invitations[0].role, "org:member");
++    assert.ok(invitations[0].expiresAt.getTime() > Date.now());
++    // No membership row is fabricated for a pending invitee.
++    assert.deepEqual(memberships, [ADMIN]);
++  });
++
++  it("returns the pending invitation when re-inviting", async () => {
++    const { service, invitations } = build({
++      memberships: [ADMIN],
++      invitations: [
++        {
++          id: "inv-1",
++          organizationId: "org-1",
++          email: "stranger@example.com",
++          role: "org:member",
++          status: "pending",
++          expiresAt: new Date(Date.now() + 3600_000),
++        },
++      ],
++    });
++    const outcome = await service.inviteMember(
++      "org-1",
++      "admin-1",
++      "stranger@example.com",
++      "org:member",
++    );
++    assert.deepEqual(outcome, { kind: "invited", invitationId: "inv-1" });
++    assert.equal(invitations.length, 1);
++  });
++});
++
++describe("OrganizationService.acceptInvitation", () => {
++  const INVITATION = {
++    id: "inv-1",
++    organizationId: "org-1",
++    email: "new@example.com",
++    role: "org:member",
++    status: "pending",
++    expiresAt: new Date(Date.now() + 3600_000),
++  };
++  const USER = {
++    id: "user-3",
++    authEmail: "new@example.com",
++    authEmailVerified: true,
++  };
++
++  it("creates the membership and closes the invitation", async () => {
++    const { service, memberships, invitations } = build({
++      memberships: [ADMIN],
++      usersById: { "user-3": USER },
++      invitations: [{ ...INVITATION }],
++    });
++    await service.acceptInvitation("inv-1", "user-3");
++    assert.ok(
++      memberships.some(
++        (m) => m.userId === "user-3" && m.role === "org:member",
++      ),
++    );
++    assert.equal(invitations[0].status, "accepted");
++  });
++
++  it("requires the invited mailbox", async () => {
++    const { service } = build({
++      usersById: {
++        "user-3": { ...USER, authEmail: "someone-else@example.com" },
++      },
++      invitations: [{ ...INVITATION }],
++    });
++    await assert.rejects(
++      service.acceptInvitation("inv-1", "user-3"),
++      ForbiddenException,
++    );
++  });
++
++  it("requires a verified mailbox", async () => {
++    const { service } = build({
++      usersById: { "user-3": { ...USER, authEmailVerified: false } },
++      invitations: [{ ...INVITATION }],
++    });
++    await assert.rejects(
++      service.acceptInvitation("inv-1", "user-3"),
++      ForbiddenException,
++    );
++  });
++
++  it("expires a stale invitation instead of accepting it", async () => {
++    const { service, invitations, memberships } = build({
++      memberships: [ADMIN],
++      usersById: { "user-3": USER },
++      invitations: [
++        { ...INVITATION, expiresAt: new Date(Date.now() - 1000) },
++      ],
++    });
++    await assert.rejects(
++      service.acceptInvitation("inv-1", "user-3"),
++      ConflictException,
++    );
++    assert.equal(invitations[0].status, "expired");
++    assert.deepEqual(memberships, [ADMIN]);
++  });
++
++  it("rejects an unknown invitation", async () => {
++    const { service } = build();
++    await assert.rejects(
++      service.acceptInvitation("inv-9", "user-3"),
++      NotFoundException,
++    );
++  });
++});
++
++describe("OrganizationService.revokeInvitation", () => {
++  const INVITATION = {
++    id: "inv-1",
++    organizationId: "org-1",
++    email: "new@example.com",
++    role: "org:member",
++    status: "pending",
++    expiresAt: new Date(Date.now() + 3600_000),
++  };
++
++  it("cancels a pending invitation", async () => {
++    const { service, invitations } = build({
++      memberships: [ADMIN],
++      invitations: [{ ...INVITATION }],
++    });
++    await service.revokeInvitation("org-1", "inv-1", "admin-1");
++    assert.equal(invitations[0].status, "revoked");
++  });
++
++  it("forbids non-admins from revoking", async () => {
++    const { service, invitations } = build({
++      memberships: [
++        ADMIN,
++        { organizationId: "org-1", userId: "user-2", role: "org:member" },
++      ],
++      invitations: [{ ...INVITATION }],
++    });
++    await assert.rejects(
++      service.revokeInvitation("org-1", "inv-1", "user-2"),
++      ForbiddenException,
++    );
++    assert.equal(invitations[0].status, "pending");
++  });
++
++  it("rejects an invitation from another organization", async () => {
++    const { service } = build({
++      memberships: [ADMIN],
++      invitations: [{ ...INVITATION, organizationId: "org-2" }],
++    });
++    await assert.rejects(
++      service.revokeInvitation("org-1", "inv-1", "admin-1"),
++      NotFoundException,
++    );
++  });
++});
+diff --git a/packages/services/src/services/organization.service.ts b/packages/services/src/services/organization.service.ts
+index 3d9decc..6682e66 100644
+--- a/packages/services/src/services/organization.service.ts
++++ b/packages/services/src/services/organization.service.ts
+@@ -1,5 +1,16 @@
+-import { ForbiddenException, Injectable } from "@nestjs/common";
+-import { Organization, OrganizationRepository } from "@ringee/database";
++import {
++  BadRequestException,
++  ConflictException,
++  ForbiddenException,
++  Injectable,
++  NotFoundException,
++} from "@nestjs/common";
++import {
++  AuthInvitation,
++  Organization,
++  OrganizationRepository,
++  UserRepository,
++} from "@ringee/database";
+ import { ClerkOrganizationRepository, RedisService } from "@ringee/platform";
+ 
+ /** One switchable workspace the user can scope their MCP session to. */
+@@ -11,10 +22,22 @@ export interface UserWorkspaceMembership {
+   role: string;
+ }
+ 
++/** The only membership roles the platform supports. */
++export const ORGANIZATION_ROLES = ["org:admin", "org:member"] as const;
++export type OrganizationRole = (typeof ORGANIZATION_ROLES)[number];
++
++/** How long a pending invitation stays acceptable. */
++const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
++
++export type InvitationOutcome =
++  | { kind: "added" }
++  | { kind: "invited"; invitationId: string };
++
+ @Injectable()
+ export class OrganizationService {
+   constructor(
+     private readonly organizationRepository: OrganizationRepository,
++    private readonly userRepository: UserRepository,
+     private readonly redisService: RedisService,
+   ) {}
+ 
+@@ -95,6 +118,188 @@ export class OrganizationService {
+     return this.organizationRepository.updateCustomerId(id, customerId);
+   }
+ 
++  /**
++   * Provider-neutral membership write. The role must be one of the supported
++   * values; anything else is rejected rather than stored and reinterpreted
++   * later. Re-inviting or changing a role converges on the unique pair.
++   */
++  async addMember(
++    organizationId: string,
++    userId: string,
++    role: string,
++  ): Promise<void> {
++    const normalized = OrganizationService.assertRole(role);
++    await this.organizationRepository.addMembershipByIds(
++      organizationId,
++      userId,
++      normalized,
++    );
++  }
++
++  /**
++   * Provider-neutral membership removal. Removing the last org:admin is
++   * refused: an organization must always have an administrator. Removing a
++   * non-member is a no-op.
++   */
++  async removeMember(organizationId: string, userId: string): Promise<void> {
++    const membership = await this.organizationRepository.findMembership(
++      organizationId,
++      userId,
++    );
++    if (!membership) {
++      return;
++    }
++    if (membership.role === "org:admin") {
++      const admins =
++        await this.organizationRepository.countAdmins(organizationId);
++      if (admins <= 1) {
++        throw new ForbiddenException(
++          "Cannot remove the last administrator of the organization.",
++        );
++      }
++    }
++    await this.organizationRepository.removeMembershipByIds(
++      organizationId,
++      userId,
++    );
++  }
++
++  /**
++   * Invite someone to an organization. Only an org:admin can invite. When the
++   * email already belongs to an enrolled user, they join directly; otherwise
++   * a pending AuthInvitation is recorded — never a half-built membership or
++   * a fabricated user. Re-inviting while one is pending returns it.
++   *
++   * Invitation emails are not sent here; delivery rides the organization's
++   * email policy once it is enabled.
++   */
++  async inviteMember(
++    organizationId: string,
++    inviterId: string,
++    email: string,
++    role: string,
++  ): Promise<InvitationOutcome> {
++    const normalizedRole = OrganizationService.assertRole(role);
++    await this.assertAdmin(organizationId, inviterId);
++    const normalizedEmail = email.trim().toLowerCase();
++    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
++      throw new BadRequestException("Invalid email address.");
++    }
++
++    const user = await this.userRepository.findByAuthEmail(normalizedEmail);
++    if (user) {
++      const existing = await this.organizationRepository.findMembership(
++        organizationId,
++        user.id,
++      );
++      if (existing) {
++        throw new ConflictException("That person is already a member.");
++      }
++      await this.organizationRepository.addMembershipByIds(
++        organizationId,
++        user.id,
++        normalizedRole,
++      );
++      return { kind: "added" };
++    }
++
++    const pending = await this.organizationRepository.findPendingInvitation(
++      organizationId,
++      normalizedEmail,
++    );
++    if (pending) {
++      return { kind: "invited", invitationId: pending.id };
++    }
++    const invitation = await this.organizationRepository.createInvitation({
++      organizationId,
++      inviterId,
++      email: normalizedEmail,
++      role: normalizedRole,
++      expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
++    });
++    return { kind: "invited", invitationId: invitation.id };
++  }
++
++  /**
++   * Accept an invitation. The accepting mailbox must be verified: a pending
++   * invitation never grants membership on an unverified claim. The membership
++   * and the invitation's closure happen in one transaction.
++   */
++  async acceptInvitation(invitationId: string, userId: string): Promise<void> {
++    const invitation =
++      await this.organizationRepository.findInvitationById(invitationId);
++    if (!invitation || invitation.status !== "pending") {
++      throw new NotFoundException("Invitation not found.");
++    }
++    if (invitation.expiresAt.getTime() <= Date.now()) {
++      await this.organizationRepository.expireInvitation(invitationId);
++      throw new ConflictException("That invitation has expired.");
++    }
++    const user = await this.userRepository.findById(userId);
++    const email = user?.authEmail?.trim().toLowerCase() ?? null;
++    if (!user || !email || email !== invitation.email || !user.authEmailVerified) {
++      throw new ForbiddenException(
++        "Accepting this invitation requires the invited, verified mailbox.",
++      );
++    }
++    await this.organizationRepository.acceptInvitation(invitationId, userId);
++  }
++
++  /** Cancel a pending invitation. Only an org:admin can revoke. */
++  async revokeInvitation(
++    organizationId: string,
++    invitationId: string,
++    actorId: string,
++  ): Promise<void> {
++    await this.assertAdmin(organizationId, actorId);
++    const invitation =
++      await this.organizationRepository.findInvitationById(invitationId);
++    if (
++      !invitation ||
++      invitation.organizationId !== organizationId ||
++      invitation.status !== "pending"
++    ) {
++      throw new NotFoundException("Invitation not found.");
++    }
++    await this.organizationRepository.revokeInvitation(invitationId);
++  }
++
++  /** Pending invitations for an organization. Org admins only. */
++  async listPendingInvitations(
++    organizationId: string,
++    actorId: string,
++  ): Promise<AuthInvitation[]> {
++    await this.assertAdmin(organizationId, actorId);
++    return this.organizationRepository.listPendingInvitations(organizationId);
++  }
++
++  private static assertRole(role: string): OrganizationRole {
++    if (
++      role !== "org:admin" &&
++      role !== "org:member"
++    ) {
++      throw new ConflictException(
++        `Unsupported role "${role}". Expected org:admin or org:member.`,
++      );
++    }
++    return role;
++  }
++
++  private async assertAdmin(
++    organizationId: string,
++    userId: string,
++  ): Promise<void> {
++    const membership = await this.organizationRepository.findMembership(
++      organizationId,
++      userId,
++    );
++    if (!membership || membership.role !== "org:admin") {
++      throw new ForbiddenException(
++        "Only an organization administrator can do that.",
++      );
++    }
++  }
++
+   /** Organizations the user can switch into (resolved memberships only). */
+   async listMembershipsForUser(
+     userId: string,
 diff --git a/packages/services/src/services/reminders/email-reminder.channel.ts b/packages/services/src/services/reminders/email-reminder.channel.ts
 index 664c0ae..d64ff13 100644
 --- a/packages/services/src/services/reminders/email-reminder.channel.ts
@@ -11523,28 +14035,30 @@ index 8a9726e..72f8cc1 100644
  
    private escapeHtml(value: string): string {
 diff --git a/packages/services/src/services/services.module.ts b/packages/services/src/services/services.module.ts
-index 5a50ace..985d2cb 100644
+index 5a50ace..a7ef443 100644
 --- a/packages/services/src/services/services.module.ts
 +++ b/packages/services/src/services/services.module.ts
-@@ -1,4 +1,8 @@
+@@ -1,4 +1,9 @@
 +import { EmailService } from "./email.service";
  import { ExternalCarrierService } from "./external-carrier/external-carrier.service";
 +import { EmailFeedbackService } from "./email-feedback.service";
 +import { AuthPrincipalService } from "./auth-principal.service";
++import { AuthIdentityService } from "./auth-identity.service";
 +import { MauticFeedbackClient, SnsFeedbackVerifier } from "@ringee/platform";
  import {
    AiReceptionistDestinationHandler,
    DeskPhoneDestinationHandler,
-@@ -214,6 +218,8 @@ import {
+@@ -214,6 +219,9 @@ import {
  } from "./security";
  
  const servicesProviders = [
 +  EmailService,
 +  AuthPrincipalService,
++  AuthIdentityService,
    UserService,
    ChatAuthService,
    CallTranscriptionService,
-@@ -448,6 +454,9 @@ const reminderChannelsProvider: Provider = {
+@@ -448,6 +456,9 @@ const reminderChannelsProvider: Provider = {
  };
  
  const allProviders: Provider[] = [
@@ -12962,10 +15476,10 @@ index b88fe67..26dfcdd 100644
 +export * from "./better-auth.configuration";
 diff --git a/packages/database/src/database/repositories/auth-session.repository.ts b/packages/database/src/database/repositories/auth-session.repository.ts
 new file mode 100644
-index 0000000..79103c9
+index 0000000..9b7f37a
 --- /dev/null
 +++ b/packages/database/src/database/repositories/auth-session.repository.ts
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,77 @@
 +import { Injectable } from "@nestjs/common";
 +import { Prisma } from "@prisma/client";
 +import { PrismaService } from "../prisma.service";
@@ -12974,6 +15488,18 @@ index 0000000..79103c9
 +@Injectable()
 +export class AuthSessionRepository {
 +  constructor(private readonly prisma: PrismaService) {}
++
++  /**
++   * Revoke every session for a user (ban, password change, account closure).
++   * Returns the number of sessions revoked. Deleting the rows is the
++   * revocation: the session reader only accepts rows it can find.
++   */
++  async revokeAllForUser(userId: string): Promise<number> {
++    const { count } = await this.prisma.authSession.deleteMany({
++      where: { userId },
++    });
++    return count;
++  }
 +
 +  async findPrincipalSnapshot(sessionId: string, userId: string, now: Date) {
 +    return this.prisma.$transaction(
@@ -13496,16 +16022,17 @@ index 0000000..e175b1a
 +  });
 +}
 diff --git a/packages/platform/src/auth/index.ts b/packages/platform/src/auth/index.ts
-index e9e6e22..cf60f32 100644
+index e9e6e22..fc2bfb7 100644
 --- a/packages/platform/src/auth/index.ts
 +++ b/packages/platform/src/auth/index.ts
-@@ -5,3 +5,6 @@ export * from "./public.decorator";
+@@ -5,3 +5,7 @@ export * from "./public.decorator";
  export * from "./clerk";
  export * from "./ownership.types";
  export * from "./org-admin.guard";
 +export * from "./current.user";
 +export * from "./auth-principal.types";
 +export * from "./better-auth/better-auth.runtime";
++export * from "./better-auth/credential-password";
 diff --git a/packages/services/src/services/auth-principal.service.spec.ts b/packages/services/src/services/auth-principal.service.spec.ts
 new file mode 100644
 index 0000000..a487cb3
