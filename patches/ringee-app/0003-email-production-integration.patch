@@ -8264,13 +8264,14 @@ index 6fa8332..595225c 100644
    firstName             String?
    lastName              String?
    imageUrl              String?
-@@ -410,6 +414,10 @@ model User {
+@@ -410,6 +414,11 @@ model User {
    // Missing keys mean "default on" so older rows keep current behavior.
    notificationPreferences Json?
  
 +  authSessions            AuthSession[]
 +  authAccounts            AuthAccount[]
 +  authInvitationsSent     AuthInvitation[]
++  oauthRefreshTokens      OAuthRefreshToken[]
 +  emailDomains            EmailDomain[]
    emails                  UserEmail[]
    chatAuths               ChatAuth[]
