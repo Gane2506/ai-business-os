@@ -8,6 +8,9 @@
 !tsconfig.json
 !tsconfig.build.json
 !.npmrc
+!scripts/
+scripts/*
+!scripts/copy-auth-runtime.cjs
 **/node_modules
 **/.next
 **/dist

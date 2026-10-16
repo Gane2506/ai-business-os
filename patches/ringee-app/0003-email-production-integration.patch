@@ -761,7 +761,7 @@ index 9430f31..841236a 100644
      // Use req.ip only after Express has been told exactly how many proxy hops
      // are trusted. Trusting arbitrary forwarded headers would let attackers
 diff --git a/apps/backend/src/triggerloop/actions/send-email.handler.ts b/apps/backend/src/triggerloop/actions/send-email.handler.ts
-index 7bdc0ea..b587bf9 100644
+index 7bdc0ea..820991e 100644
 --- a/apps/backend/src/triggerloop/actions/send-email.handler.ts
 +++ b/apps/backend/src/triggerloop/actions/send-email.handler.ts
 @@ -1,5 +1,7 @@
@@ -783,7 +783,7 @@ index 7bdc0ea..b587bf9 100644
  
    constructor(private readonly userRepository: UserRepository) {}
  
-@@ -54,18 +57,22 @@ export class SendEmailActionHandler implements ActionHandler {
+@@ -54,18 +57,26 @@ export class SendEmailActionHandler implements ActionHandler {
        };
      }
  
@@ -809,7 +809,11 @@ index 7bdc0ea..b587bf9 100644
 +        subject: content.subject,
 +        html: html,
 +        replyTo: apiConfiguration.INTERNAL_SUPPORT_EMAIL,
-+        operationKey: ctx.action.actionKey,
++        // actionKey alone identifies the action definition; scope it to this
++        // workflow execution (mirroring TriggerLoopActionExecution's
++        // (workflowInstanceId, actionKey) identity) so each execution sends
++        // once while retries of the same step keep a stable idempotency key.
++        operationKey: `${ctx.workflowInstanceId}:${ctx.action.actionKey}`,
 +      },
      );
  
@@ -1195,18 +1199,21 @@ index a540833..4c38973 100644
    },
    "devDependencies": {
 diff --git a/packages/agent/.claude-plugin/plugin.json b/packages/agent/.claude-plugin/plugin.json
-index 6fe04d7..2e10c35 100644
+index 6fe04d7..7ef98c2 100644
 --- a/packages/agent/.claude-plugin/plugin.json
 +++ b/packages/agent/.claude-plugin/plugin.json
-@@ -26,7 +26,7 @@
+@@ -26,9 +26,9 @@
      "mcp_url": {
        "type": "string",
        "title": "Ringee MCP URL",
 -      "description": "Your Ringee MCP SSE URL from the dashboard (Settings → MCP / Integrations, i.e. GET /api/mcp/connection-info). Example: https://api.ringee.io/api/mcp/<userId>/sse (or .../<userId>/<organizationId>/sse).",
-+      "description": "Legacy URL-only transport, retired by the hardened backend. Configure https://api.ringee.io/api/mcp in a client that sends an API-key header instead; see SETUP.md.",
++      "description": "Legacy URL-only transport, retired by the hardened backend (UUID URLs return HTTP 410). Configure https://api.ringee.io/api/mcp in a client that sends an API-key header instead; see SETUP.md.",
        "sensitive": true,
-       "required": true
+-      "required": true
++      "required": false
      }
+   }
+ }
 diff --git a/packages/agent/AGENTS.md b/packages/agent/AGENTS.md
 index 531d241..232fd04 100644
 --- a/packages/agent/AGENTS.md
@@ -7371,19 +7378,21 @@ index 0000000..9d01d7f
 +END $$;
 +ROLLBACK;
 diff --git a/packages/database/src/database/database.module.ts b/packages/database/src/database/database.module.ts
-index fbdbb69..3de1ba4 100644
+index fbdbb69..19f4406 100644
 --- a/packages/database/src/database/database.module.ts
 +++ b/packages/database/src/database/database.module.ts
-@@ -1,3 +1,4 @@
+@@ -1,3 +1,5 @@
 +import { EmailRepository } from "./repositories/email.repository";
++import { AuthSessionRepository } from "./repositories/auth-session.repository";
  import { ExternalCarrierRepository } from "./repositories/external-carrier.repository";
  import { InboundRouteRepository } from "./repositories/inbound-route.repository";
  import { RingGroupRepository } from "./repositories/ring-group.repository";
-@@ -105,6 +106,7 @@ import { AiVoiceAgentCallRepository } from "./repositories/ai-voice-agent-call.r
+@@ -105,6 +107,8 @@ import { AiVoiceAgentCallRepository } from "./repositories/ai-voice-agent-call.r
  import { WorkspaceCompanyProfileRepository } from "./repositories/workspace-company-profile.repository";
  
  const databaseProviders = [
 +  EmailRepository,
++  AuthSessionRepository,
    PrismaService,
    UserRepository,
    ChatAuthRepository,
@@ -10887,9 +10896,10 @@ index e03bc94..d479bab 100644
      if ("sent" in result && result.sent === false) return false;
      if ("error" in result && result.error) return false;
 diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 803fd87..25e13a7 100644
 --- a/pnpm-lock.yaml
 +++ b/pnpm-lock.yaml
-@@ -277,6 +277,12 @@
+@@ -277,6 +277,12 @@ importers:
  
    apps/backend:
      dependencies:
@@ -10902,7 +10912,7 @@ diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
        '@anthropic-ai/sdk':
          specifier: ^0.96.0
          version: 0.96.0(zod@4.1.12)
-@@ -902,6 +908,12 @@
+@@ -902,6 +908,12 @@ importers:
  
    apps/orchestrator:
      dependencies:
@@ -10915,7 +10925,7 @@ diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
        '@anthropic-ai/sdk':
          specifier: ^0.96.0
          version: 0.96.0(zod@4.1.12)
-@@ -1229,6 +1241,9 @@
+@@ -1229,6 +1241,9 @@ importers:
  
    packages/frontend-shared:
      dependencies:
@@ -10925,7 +10935,7 @@ diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
        '@clerk/nextjs':
          specifier: 7.6.2
          version: 7.6.2(next@15.3.8(@babel/core@7.28.4(supports-color@8.1.1))(@opentelemetry/api@1.9.0)(babel-plugin-macros@3.1.0)(react-dom@19.0.3(react@19.0.3))(react@19.0.3))(react-dom@19.0.3(react@19.0.3))(react@19.0.3)
-@@ -1476,6 +1491,12 @@
+@@ -1476,6 +1491,12 @@ importers:
  
    packages/platform:
      dependencies:
@@ -10938,7 +10948,7 @@ diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
        '@anthropic-ai/sdk':
          specifier: ^0.96.0
          version: 0.96.0(zod@4.1.12)
-@@ -1554,9 +1575,6 @@
+@@ -1554,9 +1575,6 @@ importers:
        reflect-metadata:
          specifier: ~0.2.2
          version: 0.2.2
@@ -10948,7 +10958,7 @@ diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
        rimraf:
          specifier: ~6.0.0
          version: 6.0.1
-@@ -1664,6 +1682,355 @@
+@@ -1664,6 +1682,350 @@ importers:
  
  packages:
  
@@ -11270,11 +11280,6 @@ diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
 +    resolution: {integrity: sha512-hHaB8C/rfzDDtr/t8YZwxAuPJTT0zHyaPoVzcXwDYhYNAgH/4sIfVhi/XLLIY+bL/FqaIJnjATDbi8ObSELmxg==}
 +    engines: {node: '>=22.0.0'}
 +
-+  nanoid@3.3.20:
-+    resolution: {integrity: sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ==}
-+    engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
-+    hasBin: true
-+
 +  nanostores@1.5.5:
 +    resolution: {integrity: sha512-FixtE239Gl6Gz0ZGCK0WzvNwObNCIwVT+L7zQcf1QgcA6AzBxblzqe9OT88qiucNkhsjSOqiogSaF5jVbJiqSA==}
 +    engines: {node: ^20.0.0 || >=22.0.0}
@@ -11304,26 +11309,21 @@ diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
    '@ably/msgpack-js@0.4.1':
      resolution: {integrity: sha512-Sjxj6SOr17hExAVrsycN7u6oV4PhZcK7Z2S8dM71CH/butgO47cSo/TL6FJPCXUyDAzKkOWjMUpJGyZkEpyu4Q==}
  
-@@ -1753,6 +2120,14 @@
- 
-   '@aws-sdk/client-s3@3.940.0':
+@@ -1755,6 +2117,10 @@ packages:
      resolution: {integrity: sha512-Wi4qnBT6shRRMXuuTgjMFTU5mu2KFWisgcigEMPptjPGUtJvBVi4PTGgS64qsLoUk/obqDAyOBOfEtRZ2ddC2w==}
-+    engines: {node: '>=18.0.0'}
-+
-+  '@aws-sdk/client-ses@3.940.0':
-+    resolution: {integrity: sha512-aAtz0+q24AJSLOHF6JHaFZ/z/0gdEJI7GRjBo+Zb//GK8wkfMCHtFkA61Kxn3kB3nrZBJmWVQ8dX3hw4vhUAaA==}
-+    engines: {node: '>=18.0.0'}
-+
-+  '@aws-sdk/client-sesv2@3.940.0':
-+    resolution: {integrity: sha512-jDQ4x2HwB2/UXBS7CTeSDiIb+sVsYGDyxTeXdrRAtqNdGv8kC54fbwokDiJ/mnMyB2gyXWw57BqeDJNkZuLmsw==}
      engines: {node: '>=18.0.0'}
  
++  '@aws-sdk/client-sesv2@3.940.0':
++    resolution: {integrity: sha512-jDQ4x2HwB2/UXBS7CTeSDiIb+sVsYGDyxTeXdrRAtqNdGv8kC54fbwokDiJ/mnMyB2gyXWw57BqeDJNkZuLmsw==}
++    engines: {node: '>=18.0.0'}
++
    '@aws-sdk/client-sso@3.940.0':
-@@ -14451,6 +14826,297 @@
-     resolution: {integrity: sha512-V50KMwwzqJV0NpZIZFwfOD5/lyny3WlSzRiXgA0G7VUnRlqttta1L6UQIHzd6EuBY/cHGfwTIck7w1yH6Q5zUw==}
+     resolution: {integrity: sha512-SdqJGWVhmIURvCSgkDditHRO+ozubwZk9aCX9MK8qxyOndhobCndW1ozl3hX9psvMAo9Q4bppjuqy/GHWpjB+A==}
+     engines: {node: '>=18.0.0'}
+@@ -14452,6 +14818,295 @@ packages:
  
  snapshots:
-+
+ 
 +  '@noble/ciphers@2.4.0': {}
 +
 +  '@noble/hashes@2.4.0': {}
@@ -11540,8 +11540,6 @@ diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
 +
 +  kysely@0.29.6: {}
 +
-+  nanoid@3.3.20: {}
-+
 +  nanostores@1.5.5: {}
 +
 +  next@15.3.8(react-dom@19.0.3(react@19.0.3))(react@19.0.3):
@@ -11614,62 +11612,14 @@ diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
 +      react: 19.0.3
 +
 +  zod@4.6.7: {}
- 
++
    '@ably/msgpack-js@0.4.1':
      dependencies:
-@@ -14652,6 +15318,96 @@
-       '@smithy/util-stream': 4.5.6
-       '@smithy/util-utf8': 4.2.0
-       '@smithy/util-waiter': 4.2.5
-+      tslib: 2.8.1
-+    transitivePeerDependencies:
-+      - aws-crt
-+
-+  '@aws-sdk/client-ses@3.940.0':
-+    dependencies:
-+      '@aws-crypto/sha256-browser': 5.2.0
-+      '@aws-crypto/sha256-js': 5.2.0
-+      '@aws-sdk/core': 3.940.0
-+      '@aws-sdk/credential-provider-node': 3.940.0
-+      '@aws-sdk/middleware-host-header': 3.936.0
-+      '@aws-sdk/middleware-logger': 3.936.0
-+      '@aws-sdk/middleware-recursion-detection': 3.936.0
-+      '@aws-sdk/middleware-user-agent': 3.940.0
-+      '@aws-sdk/region-config-resolver': 3.936.0
-+      '@aws-sdk/types': 3.936.0
-+      '@aws-sdk/util-endpoints': 3.936.0
-+      '@aws-sdk/util-user-agent-browser': 3.936.0
-+      '@aws-sdk/util-user-agent-node': 3.940.0
-+      '@smithy/config-resolver': 4.4.3
-+      '@smithy/core': 3.18.5
-+      '@smithy/fetch-http-handler': 5.3.6
-+      '@smithy/hash-node': 4.2.5
-+      '@smithy/invalid-dependency': 4.2.5
-+      '@smithy/middleware-content-length': 4.2.5
-+      '@smithy/middleware-endpoint': 4.3.12
-+      '@smithy/middleware-retry': 4.4.12
-+      '@smithy/middleware-serde': 4.2.6
-+      '@smithy/middleware-stack': 4.2.5
-+      '@smithy/node-config-provider': 4.3.5
-+      '@smithy/node-http-handler': 4.4.5
-+      '@smithy/protocol-http': 5.3.5
-+      '@smithy/smithy-client': 4.9.8
-+      '@smithy/types': 4.9.0
-+      '@smithy/url-parser': 4.2.5
-+      '@smithy/util-base64': 4.3.0
-+      '@smithy/util-body-length-browser': 4.2.0
-+      '@smithy/util-body-length-node': 4.2.1
-+      '@smithy/util-defaults-mode-browser': 4.3.11
-+      '@smithy/util-defaults-mode-node': 4.2.14
-+      '@smithy/util-endpoints': 3.2.5
-+      '@smithy/util-middleware': 4.2.5
-+      '@smithy/util-retry': 4.2.5
-+      '@smithy/util-utf8': 4.2.0
-+      '@smithy/util-waiter': 4.2.5
-+      tslib: 2.8.1
-+    transitivePeerDependencies:
-+      - aws-crt
-+
+       bops: 1.0.1
+@@ -14656,6 +15311,51 @@ snapshots:
+     transitivePeerDependencies:
+       - aws-crt
+ 
 +  '@aws-sdk/client-sesv2@3.940.0':
 +    dependencies:
 +      '@aws-crypto/sha256-browser': 5.2.0
@@ -11711,9 +11661,13 @@ diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
 +      '@smithy/util-middleware': 4.2.5
 +      '@smithy/util-retry': 4.2.5
 +      '@smithy/util-utf8': 4.2.0
-       tslib: 2.8.1
-     transitivePeerDependencies:
-       - aws-crt
++      tslib: 2.8.1
++    transitivePeerDependencies:
++      - aws-crt
++
+   '@aws-sdk/client-sso@3.940.0':
+     dependencies:
+       '@aws-crypto/sha256-browser': 5.2.0
 diff --git a/packages/platform/src/ai-agents/ai-agents.module.ts b/packages/platform/src/ai-agents/ai-agents.module.ts
 index ddd8f50..31f2317 100644
 --- a/packages/platform/src/ai-agents/ai-agents.module.ts
@@ -13110,15 +13064,46 @@ index 0000000..d114083
 +}
 diff --git a/scripts/auth-runtime.test.cjs b/scripts/auth-runtime.test.cjs
 new file mode 100644
-index 0000000..f40b2d3
+index 0000000..dad4140
 --- /dev/null
 +++ b/scripts/auth-runtime.test.cjs
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,121 @@
 +const { test } = require("node:test");
 +const assert = require("node:assert/strict");
 +const { readFileSync, existsSync } = require("node:fs");
 +const { resolve, join } = require("node:path");
 +const { randomBytes } = require("node:crypto");
++// Synthetic startup environment for the compiled application configuration.
++// Requiring the compiled better-auth runtime pulls in @ringee/configuration,
++// which validates required settings at import time and exits(1) listing every
++// missing key. These deterministic placeholders satisfy that validation only;
++// no step below connects to a provider, sends a message, or spends money.
++// Existing values (e.g. CI's disposable DATABASE_URL) are never overwritten.
++for (const [key, value] of Object.entries({
++  DATABASE_URL: "postgresql://smoke:smoke@127.0.0.1:1/smoke",
++  PORT: "3101",
++  WHATSAPP_PHONE_ID: "smoke-test",
++  WHATSAPP_PHONE_NUMBER: "smoke-test",
++  WHATSAPP_TOKEN: "smoke-test",
++  WHATSAPP_VERIFY_TOKEN: "smoke-test",
++  FRONTEND_URL: "https://calls.connectxmedia.com",
++  BACKEND_URL: "https://calls-api.connectxmedia.com",
++  PUBLIC_BACKEND_URL: "https://calls-api.connectxmedia.com",
++  AI_PROVIDER: "openrouter",
++  OPENROUTER_API_KEY: "smoke-test",
++  REDIS_URL: "redis://127.0.0.1:1",
++  AWS_SES_REGION: "ca-central-1",
++  EMAIL_FROM_NAME: "Smoke Test",
++  EMAIL_FROM_ADDRESS: "smoke-test@example.invalid",
++  CLERK_WEBHOOK_SIGNING_SECRET: "smoke-test",
++  APP_ENCRYPTION_SECRET: "smoke-test",
++  TELNYX_API_KEY: "smoke-test",
++  TELNYX_CONNECTION_ID: "smoke-test",
++  STRIPE_SECRET_KEY: "smoke-test",
++  STRIPE_WEBHOOK_SECRET: "smoke-test",
++})) {
++  process.env[key] ??= value;
++}
 +const root = resolve(__dirname, "..");
 +for (const owner of ["apps/backend", "apps/orchestrator"]) {
 +  test(
@@ -13885,3 +13870,4 @@ index 0000000..9fb0b50
 @@ -0,0 +1,2 @@
 +export { readAuthPrincipal, signInDestination } from "../auth/contracts";
 +export type { AuthPrincipal } from "../auth/contracts";
+
