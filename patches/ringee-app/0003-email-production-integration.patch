@@ -14352,7 +14352,7 @@ new file mode 100644
 index 0000000..8113714
 --- /dev/null
 +++ b/packages/services/src/services/realtime-ticket.service.ts
-@@ -0,0 +1,129 @@
+@@ -0,0 +1,120 @@
 +import { createHash, randomBytes } from "node:crypto";
 +import { Injectable, Logger } from "@nestjs/common";
 +import { AuthSessionRepository } from "@ringee/database";
@@ -14379,19 +14379,6 @@ index 0000000..8113714
 +  sessionId: string;
 +  expiresAt: string;
 +}
-+
-+/**
-+ * Atomically take the ticket row or fail. Two racing consumers cannot both
-+ * win: the first DEL removes the key and the second sees nothing.
-+ */
-+const CONSUME_TICKET_SCRIPT = `
-+local raw = redis.call('GET', KEYS[1])
-+if not raw then
-+  return nil
-+end
-+redis.call('DEL', KEYS[1])
-+return raw
-+`;
 +
 +/** 32 random bytes encoded base64url — anything else is not one of ours. */
 +const TICKET_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -14439,11 +14426,15 @@ index 0000000..8113714
 +   */
 +  async consumeTicket(ticket: string): Promise<ConsumedRealtimeTicket | null> {
 +    if (!TICKET_PATTERN.test(ticket)) return null;
-+    const raw = await this.redis.eval(CONSUME_TICKET_SCRIPT, {
-+      keys: [ticketKey(ticket)],
-+      arguments: [],
-+    });
-+    if (typeof raw !== "string") return null;
++    const key = ticketKey(ticket);
++    const raw = await this.redis.getRaw(key);
++    if (raw === null) return null;
++    // Atomically take the row: compareAndSwap deletes only while the key
++    // still holds exactly what was read, so two racing consumers cannot
++    // both win and an expired or overwritten key fails the compare.
++    // A replayed ticket therefore finds nothing to take.
++    const taken = await this.redis.compareAndSwap(key, raw, null);
++    if (!taken) return null;
 +    let stored: StoredTicket;
 +    try {
 +      stored = JSON.parse(raw) as StoredTicket;
@@ -14487,7 +14478,7 @@ new file mode 100644
 index 0000000..4e76d90
 --- /dev/null
 +++ b/packages/services/src/services/realtime-ticket.service.spec.ts
-@@ -0,0 +1,142 @@
+@@ -0,0 +1,144 @@
 +import { describe, it } from "node:test";
 +import assert from "node:assert/strict";
 +import { createHash } from "node:crypto";
@@ -14499,8 +14490,9 @@ index 0000000..4e76d90
 +const SESSION = "20000000-0000-4000-8000-000000000001";
 +
 +/**
-+ * In-memory RedisService double. The eval double mirrors the service's Lua:
-+ * GET then DEL as one indivisible step, so replay semantics are honest.
++ * In-memory RedisService double. getRaw + compareAndSwap mirror the real
++ * atomic take: compareAndSwap deletes only while the key still holds
++ * exactly the expected value, so replay semantics are honest.
 + */
 +function fakeRedis() {
 +  const store = new Map<string, string>();
@@ -14511,14 +14503,18 @@ index 0000000..4e76d90
 +        typeof value === "string" ? value : JSON.stringify(value),
 +      );
 +    },
-+    async eval(
-+      _script: string,
-+      options: { keys: string[]; arguments: string[] },
-+    ): Promise<unknown> {
-+      const raw = store.get(options.keys[0]) ?? null;
-+      if (raw === null) return null;
-+      store.delete(options.keys[0]);
-+      return raw;
++    async getRaw(key: string): Promise<string | null> {
++      return store.get(key) ?? null;
++    },
++    async compareAndSwap(
++      key: string,
++      expected: string,
++      next: string | null,
++    ): Promise<boolean> {
++      if (store.get(key) !== expected) return false;
++      if (next === null) store.delete(key);
++      else store.set(key, next);
++      return true;
 +    },
 +    /** Test-only: overwrite a row (e.g. to plant an expired payload). */
 +    writeRaw(key: string, value: string): void {
@@ -14526,9 +14522,6 @@ index 0000000..4e76d90
 +    },
 +    keys(): string[] {
 +      return [...store.keys()];
-+    },
-+    getRaw(key: string): string | undefined {
-+      return store.get(key);
 +    },
 +  };
 +  return redis;
@@ -14574,7 +14567,7 @@ index 0000000..4e76d90
 +    assert.equal(keys.length, 1);
 +    assert.ok(keys[0].endsWith(digestOf(issued.ticket)));
 +    for (const key of keys) {
-+      const raw = redis.getRaw(key) ?? "";
++      const raw = (await redis.getRaw(key)) ?? "";
 +      assert.ok(!raw.includes(issued.ticket), "ticket value must not be stored");
 +    }
 +  });
