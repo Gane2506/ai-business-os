@@ -980,7 +980,7 @@ index 0000000..74802f6
 +        req.method !== "HEAD" &&
 +        Buffer.isBuffer(req.body)
 +      ) {
-+        init.body = req.body;
++        init.body = new Uint8Array(req.body);
 +      }
 +      const response = await runtime.handle(new Request(url, init));
 +
@@ -1325,7 +1325,7 @@ index 9430f31..33cb968 100644
 +  app.use(
 +    "/api/auth",
 +    express.raw({ type: () => true, limit: "512kb" }),
-+    (req, res, next) => {
++    (req: express.Request, res: express.Response, next: express.NextFunction) => {
 +      authMiddleware ??= createAuthRequestMiddleware(
 +        app.get<BetterAuthRuntime>(AUTH_RUNTIME_TOKEN),
 +      );
