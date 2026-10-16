@@ -1798,6 +1798,230 @@ index 9430f31..33cb968 100644
    // Both WebSocket servers self-attach to this HTTP server from their
    // `onApplicationBootstrap` hooks: the Telnyx media stream on /media-stream
    // and the per-user events gateway on /ws/user-events. Each one claims only
+diff --git a/apps/backend/src/realtime/realtime-ticket.controller.ts b/apps/backend/src/realtime/realtime-ticket.controller.ts
+new file mode 100644
+index 0000000..e416398
+--- /dev/null
++++ b/apps/backend/src/realtime/realtime-ticket.controller.ts
+@@ -0,0 +1,23 @@
++import { Controller, Get } from "@nestjs/common";
++import { CurrentUser, type RingeeAuthPrincipal } from "@ringee/platform";
++import { RealtimeTicketService } from "@ringee/services";
++
++/**
++ * Mints one-use realtime tickets for the caller's verified session.
++ *
++ * The global AuthGuard already resolved the principal, so this handler only
++ * delegates — no business logic, no provider calls. The browser fetches a
++ * ticket here (cookies travel with the request) and presents it in the
++ * WebSocket auth frame. The ticket itself never appears in a URL.
++ */
++@Controller("realtime")
++export class RealtimeTicketController {
++  constructor(private readonly tickets: RealtimeTicketService) {}
++
++  @Get("ticket")
++  async issueTicket(
++    @CurrentUser() principal: RingeeAuthPrincipal,
++  ): Promise<{ ticket: string; expiresAt: string }> {
++    return this.tickets.issueTicket(principal.id, principal.sessionId);
++  }
++}
+diff --git a/apps/backend/src/realtime/realtime.module.ts b/apps/backend/src/realtime/realtime.module.ts
+index 0799fc6..c8f76f8 100644
+--- a/apps/backend/src/realtime/realtime.module.ts
++++ b/apps/backend/src/realtime/realtime.module.ts
+@@ -1,5 +1,6 @@
+ import { Module } from "@nestjs/common";
+ import { RealtimeModule as RealtimePlatformModule } from "@ringee/platform";
++import { RealtimeTicketController } from "./realtime-ticket.controller";
+ import { UserEventsGateway } from "./user-events.gateway";
+ 
+ /**
+@@ -7,9 +8,13 @@ import { UserEventsGateway } from "./user-events.gateway";
+  * shared `ServicesModule`) so only the process that owns the public HTTP server
+  * accepts upgrades — the orchestrator imports the platform transport alone and
+  * just publishes.
++ *
++ * The ticket controller lives here too: tickets are minted by the process that
++ * will consume them, and the global AuthGuard already covers the route.
+  */
+ @Module({
+   imports: [RealtimePlatformModule],
++  controllers: [RealtimeTicketController],
+   providers: [UserEventsGateway],
+   exports: [UserEventsGateway],
+ })
+diff --git a/apps/backend/src/realtime/user-events.gateway.ts b/apps/backend/src/realtime/user-events.gateway.ts
+index 283bbf7..700499c 100644
+--- a/apps/backend/src/realtime/user-events.gateway.ts
++++ b/apps/backend/src/realtime/user-events.gateway.ts
+@@ -10,12 +10,13 @@ import { HttpAdapterHost } from "@nestjs/core";
+ import type { IncomingMessage, Server } from "http";
+ import type { Duplex } from "stream";
+ import { RawData, WebSocket, WebSocketServer } from "ws";
+-import { verifyToken } from "@clerk/backend";
+ import { apiConfiguration } from "@ringee/configuration";
+ import {
+   AUTH_TIMEOUT_MS,
+   HEARTBEAT_INTERVAL_MS,
+   REALTIME_CLIENT_KINDS,
++  REALTIME_TICKET_KIND,
++  REALTIME_TICKET_VERSION,
+   RealtimeAccountBlockedEvent,
+   RealtimeBusService,
+   RealtimeClientKind,
+@@ -27,7 +28,7 @@ import {
+   USER_EVENTS_CHANNEL,
+   USER_EVENTS_WS_PATH,
+ } from "@ringee/platform";
+-import { UserService } from "@ringee/services";
++import { RealtimeTicketService, UserService } from "@ringee/services";
+ import { isAllowedRealtimeOrigin } from "./realtime-origins";
+ 
+ /** Reject a socket that has not authenticated after this many auth frames. */
+@@ -43,7 +44,8 @@ interface Connection {
+   id: string;
+   socket: WebSocket;
+   userId: string;
+-  clerkUserId: string;
++  /** Parent Better Auth session this socket is tied to. */
++  sessionId: string;
+   device: RealtimeDevice;
+   isAlive: boolean;
+ }
+@@ -92,6 +94,7 @@ export class UserEventsGateway
+     private readonly bus: RealtimeBusService,
+     private readonly presence: RealtimePresenceService,
+     private readonly userService: UserService,
++    private readonly tickets: RealtimeTicketService,
+   ) {}
+ 
+   async onModuleInit(): Promise<void> {
+@@ -227,19 +230,33 @@ export class UserEventsGateway
+     req: IncomingMessage,
+     message: { token?: unknown } & Record<string, unknown>,
+   ): Promise<void> {
++    // Upgraded clients negotiate the ticket protocol explicitly. Anything
++    // else — a legacy Clerk JWT frame, a forged shape — is rejected outright;
++    // old clients must upgrade and are never silently accepted.
++    if (
++      message.kind !== REALTIME_TICKET_KIND ||
++      message.ticketVersion !== REALTIME_TICKET_VERSION
++    ) {
++      this.send(socket, {
++        type: "error",
++        code: RealtimeCloseCode.UNAUTHORIZED,
++        message: "Realtime auth requires a one-use ticket; update the client",
++      });
++      this.close(socket, RealtimeCloseCode.UNAUTHORIZED, "legacy_client");
++      return;
++    }
++
+     const token = typeof message.token === "string" ? message.token : "";
+     if (!token) {
+       this.close(socket, RealtimeCloseCode.UNAUTHORIZED, "missing_token");
+       return;
+     }
+ 
+-    let clerkUserId: string;
+-    try {
+-      const payload = await verifyToken(token, {
+-        secretKey: apiConfiguration.CLERK_SECRET_KEY,
+-      });
+-      clerkUserId = payload.sub;
+-    } catch {
++    // Single-use and atomically consumed: a replayed ticket finds no row.
++    // The user identity comes from the ticket itself — a client-supplied
++    // userId in the frame is ignored and can never authorize as someone else.
++    const claimed = await this.tickets.consumeTicket(token).catch(() => null);
++    if (!claimed) {
+       this.send(socket, {
+         type: "error",
+         code: RealtimeCloseCode.UNAUTHORIZED,
+@@ -250,7 +267,7 @@ export class UserEventsGateway
+     }
+ 
+     const user = await this.userService
+-      .getCachedByClerkId(clerkUserId)
++      .getCachedUserById(claimed.userId)
+       .catch(() => null);
+     if (!user) {
+       this.close(socket, RealtimeCloseCode.UNAUTHORIZED, "unknown_user");
+@@ -274,7 +291,7 @@ export class UserEventsGateway
+       id: randomUUID(),
+       socket,
+       userId: user.id,
+-      clerkUserId,
++      sessionId: claimed.sessionId,
+       isAlive: true,
+       device: {
+         connectionId: "",
+@@ -374,29 +391,48 @@ export class UserEventsGateway
+   }
+ 
+   /**
+-   * Backstop for a lost broadcast: if the account is blocked but sockets are
+-   * still open, close them. One lookup per connected user, not per socket.
++   * Backstop for a lost broadcast and for dead sessions: if the account is
++   * blocked, or the connection's parent session is gone (logout, revocation,
++   * expiry), but sockets are still open, close them.
++   *
++   * A lookup failure keeps the socket (fail-open): a database or Redis blip
++   * must not mass-disconnect every device. The handshake itself stays
++   * fail-closed.
+    */
+   private async revalidate(userId: string): Promise<void> {
++    const connections = this.connectionsByUser.get(userId);
++    if (!connections?.size) return;
++
+     const user = await this.userService
+       .getCachedUserById(userId)
+       .catch(() => null);
+-    if (!user?.blockedAt) return;
+-
+-    const connections = this.connectionsByUser.get(userId);
+-    if (!connections?.size) return;
+ 
+-    this.logger.warn(
+-      `Closing ${connections.size} stale socket(s) for blocked user ${userId}`,
+-    );
+-    const event = this.blockedEvent(user);
+     for (const connection of connections.values()) {
+-      this.send(connection.socket, event);
+-      this.close(
+-        connection.socket,
+-        RealtimeCloseCode.ACCOUNT_BLOCKED,
+-        "account_blocked",
+-      );
++      if (user?.blockedAt) {
++        this.logger.warn(
++          `Closing stale socket for blocked user ${userId}`,
++        );
++        this.send(connection.socket, this.blockedEvent(user));
++        this.close(
++          connection.socket,
++          RealtimeCloseCode.ACCOUNT_BLOCKED,
++          "account_blocked",
++        );
++        continue;
++      }
++      const live = await this.tickets
++        .isSessionLive(connection.sessionId, userId)
++        .catch(() => true);
++      if (!live) {
++        this.logger.warn(
++          `Closing socket with dead session for user ${userId}`,
++        );
++        this.close(
++          connection.socket,
++          RealtimeCloseCode.UNAUTHORIZED,
++          "session_revoked",
++        );
++      }
+     }
+   }
+ 
 diff --git a/apps/backend/src/triggerloop/actions/send-email.handler.ts b/apps/backend/src/triggerloop/actions/send-email.handler.ts
 index 7bdc0ea..820991e 100644
 --- a/apps/backend/src/triggerloop/actions/send-email.handler.ts
@@ -9176,17 +9400,16 @@ index 717c72b..51ce1c3 100644
  export {
 diff --git a/packages/platform/src/auth/current.user.ts b/packages/platform/src/auth/current.user.ts
 new file mode 100644
-index 0000000..142e4d5
+index 0000000..9be7068
 --- /dev/null
 +++ b/packages/platform/src/auth/current.user.ts
-@@ -0,0 +1,29 @@
+@@ -0,0 +1,31 @@
 +import {
 +  createParamDecorator,
 +  ExecutionContext,
 +  UnauthorizedException,
 +} from "@nestjs/common";
 +import { AUTH_PRINCIPAL_REQUEST_KEY } from "./auth-principal.types";
-+import type { CurrentUserData } from "./ownership.types";
 +import type { RingeeAuthPrincipal } from "./auth-principal.types";
 +
 +/**
@@ -9195,9 +9418,12 @@ index 0000000..142e4d5
 + * Reads the verified principal that the global AuthGuard resolved once per
 + * request. There is no provider fetch and no identity recovery here: if the
 + * principal is missing the request was never authenticated.
++ *
++ * The declared type is the full principal (it extends CurrentUserData, so
++ * existing `CurrentUserData` annotations keep type-checking).
 + */
 +export const CurrentUser = createParamDecorator(
-+  (_data: unknown, ctx: ExecutionContext): CurrentUserData => {
++  (_data: unknown, ctx: ExecutionContext): RingeeAuthPrincipal => {
 +    const request = ctx.switchToHttp().getRequest();
 +    const principal: RingeeAuthPrincipal | undefined =
 +      request[AUTH_PRINCIPAL_REQUEST_KEY];
@@ -9209,6 +9435,56 @@ index 0000000..142e4d5
 +    return principal;
 +  },
 +);
+diff --git a/packages/platform/src/realtime/realtime.contracts.ts b/packages/platform/src/realtime/realtime.contracts.ts
+index 72c0499..3703d79 100644
+--- a/packages/platform/src/realtime/realtime.contracts.ts
++++ b/packages/platform/src/realtime/realtime.contracts.ts
+@@ -22,6 +22,22 @@ export const USER_EVENTS_CHANNEL = "ringee:realtime:user-events:v1";
+ /** Redis hash (one per user) holding the currently connected devices. */
+ export const USER_PRESENCE_KEY_PREFIX = "ringee:realtime:presence:v1";
+ 
++/**
++ * Wire discriminator for the one-use ticket auth frame. Frames that do not
++ * carry it (including legacy Clerk JWT frames) are rejected outright — old
++ * clients must upgrade, they are never silently accepted.
++ */
++export const REALTIME_TICKET_KIND = "realtime-ticket-v1";
++
++/** Ticket protocol version sent by upgraded clients. */
++export const REALTIME_TICKET_VERSION = 1;
++
++/** Redis key prefix for ticket digests (the digest, never the ticket). */
++export const REALTIME_TICKET_KEY_PREFIX = "ringee:realtime:ticket:v1";
++
++/** How long an issued ticket stays consumable. */
++export const REALTIME_TICKET_TTL_MS = 60_000;
++
+ /** How often the server pings a socket; a client that misses two is dropped. */
+ export const HEARTBEAT_INTERVAL_MS = 25_000;
+ 
+@@ -70,13 +86,21 @@ export const TERMINAL_CLOSE_CODES: readonly number[] = [
+ // ── Client → server ─────────────────────────────────────────────────────────
+ 
+ /**
+- * First frame every client must send. The token is a Clerk session JWT, sent in
++ * First frame every client must send. The token is a one-use realtime ticket
++ * obtained from `GET /api/realtime/ticket` over the authenticated API, sent in
+  * the payload rather than the URL so it never lands in access logs, proxy
+  * traces or browser history.
++ *
++ * The user identity always comes from the consumed ticket — a `userId` sent by
++ * the client is ignored and can never authorize as someone else.
+  */
+ export interface RealtimeAuthMessage {
+   type: "auth";
+   token: string;
++  /** Must be `REALTIME_TICKET_KIND`; anything else is rejected. */
++  kind: string;
++  /** Must be `REALTIME_TICKET_VERSION`; anything else is rejected. */
++  ticketVersion: number;
+   /** Stable per-install id so the backoffice can tell devices apart. */
+   deviceId?: string;
+   /** Human-readable device label, e.g. "Chrome · macOS". */
 diff --git a/packages/platform/src/auth/org-admin.guard.ts b/packages/platform/src/auth/org-admin.guard.ts
 index 19e95b5..0397185 100644
 --- a/packages/platform/src/auth/org-admin.guard.ts
@@ -13161,7 +13437,7 @@ index f498d4c..cf33061 100644
        if (wasAccepted(result)) return true;
        const delay = this.retryDelaysMs[attempt];
 diff --git a/packages/services/src/services/index.ts b/packages/services/src/services/index.ts
-index 9dc76b6..7313fa9 100644
+index 9dc76b6..cd6a889 100644
 --- a/packages/services/src/services/index.ts
 +++ b/packages/services/src/services/index.ts
 @@ -1,4 +1,5 @@
@@ -13170,7 +13446,7 @@ index 9dc76b6..7313fa9 100644
  export * from "./services.module";
  export * from "./chat.auth.service";
  export * from "./call.service";
-@@ -59,3 +60,7 @@ export * from "./voice-agents";
+@@ -59,3 +60,8 @@ export * from "./voice-agents";
  
  export * from "./external-carrier/external-carrier.service";
  export * from "./inbound-routing";
@@ -13178,6 +13454,7 @@ index 9dc76b6..7313fa9 100644
 +export * from "./email.service";
 +export * from "./auth-principal.service";
 +export * from "./auth-identity.service";
++export * from "./realtime-ticket.service";
 diff --git a/packages/services/src/services/number.purchased.service.ts b/packages/services/src/services/number.purchased.service.ts
 index e18da01..074e750 100644
 --- a/packages/services/src/services/number.purchased.service.ts
@@ -14035,30 +14312,32 @@ index 8a9726e..72f8cc1 100644
  
    private escapeHtml(value: string): string {
 diff --git a/packages/services/src/services/services.module.ts b/packages/services/src/services/services.module.ts
-index 5a50ace..a7ef443 100644
+index 5a50ace..8949c6a 100644
 --- a/packages/services/src/services/services.module.ts
 +++ b/packages/services/src/services/services.module.ts
-@@ -1,4 +1,9 @@
+@@ -1,4 +1,10 @@
 +import { EmailService } from "./email.service";
  import { ExternalCarrierService } from "./external-carrier/external-carrier.service";
 +import { EmailFeedbackService } from "./email-feedback.service";
 +import { AuthPrincipalService } from "./auth-principal.service";
 +import { AuthIdentityService } from "./auth-identity.service";
++import { RealtimeTicketService } from "./realtime-ticket.service";
 +import { MauticFeedbackClient, SnsFeedbackVerifier } from "@ringee/platform";
  import {
    AiReceptionistDestinationHandler,
    DeskPhoneDestinationHandler,
-@@ -214,6 +219,9 @@ import {
+@@ -214,6 +220,10 @@ import {
  } from "./security";
  
  const servicesProviders = [
 +  EmailService,
 +  AuthPrincipalService,
 +  AuthIdentityService,
++  RealtimeTicketService,
    UserService,
    ChatAuthService,
    CallTranscriptionService,
-@@ -448,6 +456,9 @@ const reminderChannelsProvider: Provider = {
+@@ -448,6 +458,9 @@ const reminderChannelsProvider: Provider = {
  };
  
  const allProviders: Provider[] = [
@@ -14068,6 +14347,282 @@ index 5a50ace..a7ef443 100644
    ...servicesProviders,
    reminderChannelsProvider,
    pipelineDefinitionsProvider,
+diff --git a/packages/services/src/services/realtime-ticket.service.ts b/packages/services/src/services/realtime-ticket.service.ts
+new file mode 100644
+index 0000000..8113714
+--- /dev/null
++++ b/packages/services/src/services/realtime-ticket.service.ts
+@@ -0,0 +1,120 @@
++import { createHash, randomBytes } from "node:crypto";
++import { Injectable, Logger } from "@nestjs/common";
++import { AuthSessionRepository } from "@ringee/database";
++import {
++  REALTIME_TICKET_KEY_PREFIX,
++  REALTIME_TICKET_TTL_MS,
++  RedisService,
++} from "@ringee/platform";
++
++/** What the ticket endpoint hands the browser: single-use, short-lived. */
++export interface RealtimeTicket {
++  ticket: string;
++  expiresAt: string;
++}
++
++/** What consuming a ticket proves: the user and parent session it binds. */
++export interface ConsumedRealtimeTicket {
++  userId: string;
++  sessionId: string;
++}
++
++interface StoredTicket {
++  userId: string;
++  sessionId: string;
++  expiresAt: string;
++}
++
++/** 32 random bytes encoded base64url — anything else is not one of ours. */
++const TICKET_PATTERN = /^[A-Za-z0-9_-]{43}$/;
++
++/**
++ * One-use realtime tickets binding a WebSocket handshake to a verified
++ * Better Auth session.
++ *
++ * Only the SHA-256 digest ever touches Redis; the ticket value itself is
++ * returned once to the browser and never logged. A ticket is consumed
++ * atomically on first use, so a replayed copy is worthless, and it never
++ * outlives its parent session.
++ */
++@Injectable()
++export class RealtimeTicketService {
++  private readonly logger = new Logger(RealtimeTicketService.name);
++
++  constructor(
++    private readonly redis: RedisService,
++    private readonly sessions: AuthSessionRepository,
++  ) {}
++
++  /** Mint a ticket for an already-authenticated principal. */
++  async issueTicket(
++    userId: string,
++    sessionId: string,
++  ): Promise<RealtimeTicket> {
++    const ticket = randomBytes(32).toString("base64url");
++    const expiresAt = new Date(
++      Date.now() + REALTIME_TICKET_TTL_MS,
++    ).toISOString();
++    const stored: StoredTicket = { userId, sessionId, expiresAt };
++    await this.redis.set(
++      ticketKey(ticket),
++      JSON.stringify(stored),
++      REALTIME_TICKET_TTL_MS,
++    );
++    return { ticket, expiresAt };
++  }
++
++  /**
++   * Atomically consume a ticket. Returns the bound user/session, or null when
++   * the ticket is unknown, already used, expired, malformed, or its parent
++   * session is gone (logout, revocation, expiry).
++   */
++  async consumeTicket(ticket: string): Promise<ConsumedRealtimeTicket | null> {
++    if (!TICKET_PATTERN.test(ticket)) return null;
++    const key = ticketKey(ticket);
++    const raw = await this.redis.getRaw(key);
++    if (raw === null) return null;
++    // Atomically take the row: compareAndSwap deletes only while the key
++    // still holds exactly what was read, so two racing consumers cannot
++    // both win and an expired or overwritten key fails the compare.
++    // A replayed ticket therefore finds nothing to take.
++    const taken = await this.redis.compareAndSwap(key, raw, null);
++    if (!taken) return null;
++    let stored: StoredTicket;
++    try {
++      stored = JSON.parse(raw) as StoredTicket;
++    } catch {
++      this.logger.warn("Realtime ticket row failed to parse; discarded");
++      return null;
++    }
++    if (
++      typeof stored?.userId !== "string" ||
++      typeof stored?.sessionId !== "string" ||
++      typeof stored?.expiresAt !== "string" ||
++      stored.expiresAt <= new Date().toISOString()
++    ) {
++      return null;
++    }
++    // The session may have died between issuance and use. A ticket never
++    // outlives its parent session.
++    const snapshot = await this.sessions
++      .findPrincipalSnapshot(stored.sessionId, stored.userId, new Date())
++      .catch(() => null);
++    if (!snapshot) return null;
++    return { userId: stored.userId, sessionId: stored.sessionId };
++  }
++
++  /** Backstop for the gateway's periodic revalidation: is the session live? */
++  async isSessionLive(sessionId: string, userId: string): Promise<boolean> {
++    const snapshot = await this.sessions
++      .findPrincipalSnapshot(sessionId, userId, new Date())
++      .catch(() => null);
++    return snapshot !== null;
++  }
++}
++
++/** The digest — never the ticket value — is the Redis key. */
++function ticketKey(ticket: string): string {
++  const digest = createHash("sha256").update(ticket, "utf8").digest("hex");
++  return `${REALTIME_TICKET_KEY_PREFIX}:${digest}`;
++}
+diff --git a/packages/services/src/services/realtime-ticket.service.spec.ts b/packages/services/src/services/realtime-ticket.service.spec.ts
+new file mode 100644
+index 0000000..4e76d90
+--- /dev/null
++++ b/packages/services/src/services/realtime-ticket.service.spec.ts
+@@ -0,0 +1,144 @@
++import { describe, it } from "node:test";
++import assert from "node:assert/strict";
++import { createHash } from "node:crypto";
++import type { AuthSessionRepository } from "@ringee/database";
++import type { RedisService } from "@ringee/platform";
++import { RealtimeTicketService } from "./realtime-ticket.service";
++
++const USER = "10000000-0000-4000-8000-000000000001";
++const SESSION = "20000000-0000-4000-8000-000000000001";
++
++/**
++ * In-memory RedisService double. getRaw + compareAndSwap mirror the real
++ * atomic take: compareAndSwap deletes only while the key still holds
++ * exactly the expected value, so replay semantics are honest.
++ */
++function fakeRedis() {
++  const store = new Map<string, string>();
++  const redis = {
++    async set(key: string, value: string): Promise<void> {
++      store.set(
++        key,
++        typeof value === "string" ? value : JSON.stringify(value),
++      );
++    },
++    async getRaw(key: string): Promise<string | null> {
++      return store.get(key) ?? null;
++    },
++    async compareAndSwap(
++      key: string,
++      expected: string,
++      next: string | null,
++    ): Promise<boolean> {
++      if (store.get(key) !== expected) return false;
++      if (next === null) store.delete(key);
++      else store.set(key, next);
++      return true;
++    },
++    /** Test-only: overwrite a row (e.g. to plant an expired payload). */
++    writeRaw(key: string, value: string): void {
++      store.set(key, value);
++    },
++    keys(): string[] {
++      return [...store.keys()];
++    },
++  };
++  return redis;
++}
++
++function fakeSessions(snapshot: unknown) {
++  return {
++    async findPrincipalSnapshot() {
++      return snapshot;
++    },
++  } as unknown as AuthSessionRepository;
++}
++
++function fixture(sessionSnapshot: unknown = { session: { id: SESSION } }) {
++  const redis = fakeRedis();
++  const service = new RealtimeTicketService(
++    redis as unknown as RedisService,
++    fakeSessions(sessionSnapshot),
++  );
++  return { redis, service };
++}
++
++function digestOf(ticket: string): string {
++  return createHash("sha256").update(ticket, "utf8").digest("hex");
++}
++
++describe("realtime one-use tickets", () => {
++  it("issues a ticket that consumes to the bound user and session", async () => {
++    const { service } = fixture();
++    const issued = await service.issueTicket(USER, SESSION);
++    assert.match(issued.ticket, /^[A-Za-z0-9_-]{43}$/);
++    assert.ok(new Date(issued.expiresAt).getTime() > Date.now());
++
++    const consumed = await service.consumeTicket(issued.ticket);
++    assert.deepEqual(consumed, { userId: USER, sessionId: SESSION });
++  });
++
++  it("stores only the digest, never the ticket value", async () => {
++    const { redis, service } = fixture();
++    const issued = await service.issueTicket(USER, SESSION);
++
++    const keys = redis.keys();
++    assert.equal(keys.length, 1);
++    assert.ok(keys[0].endsWith(digestOf(issued.ticket)));
++    for (const key of keys) {
++      const raw = (await redis.getRaw(key)) ?? "";
++      assert.ok(!raw.includes(issued.ticket), "ticket value must not be stored");
++    }
++  });
++
++  it("rejects replay: the second consume of the same ticket fails", async () => {
++    const { service } = fixture();
++    const issued = await service.issueTicket(USER, SESSION);
++
++    assert.ok(await service.consumeTicket(issued.ticket));
++    assert.equal(await service.consumeTicket(issued.ticket), null);
++  });
++
++  it("rejects unknown, tampered and malformed tickets", async () => {
++    const { service } = fixture();
++    const issued = await service.issueTicket(USER, SESSION);
++
++    assert.equal(await service.consumeTicket("x".repeat(43)), null);
++    const tampered =
++      issued.ticket.slice(0, 42) +
++      (issued.ticket[42] === "A" ? "B" : "A");
++    assert.equal(await service.consumeTicket(tampered), null);
++    assert.equal(await service.consumeTicket("not-a-ticket"), null);
++    assert.equal(await service.consumeTicket(""), null);
++  });
++
++  it("rejects expired tickets", async () => {
++    const { redis, service } = fixture();
++    const issued = await service.issueTicket(USER, SESSION);
++
++    const key = redis.keys()[0];
++    redis.writeRaw(
++      key,
++      JSON.stringify({
++        userId: USER,
++        sessionId: SESSION,
++        expiresAt: new Date(Date.now() - 1000).toISOString(),
++      }),
++    );
++    assert.equal(await service.consumeTicket(issued.ticket), null);
++  });
++
++  it("rejects tickets whose parent session is gone", async () => {
++    const { service } = fixture(null);
++    const issued = await service.issueTicket(USER, SESSION);
++    assert.equal(await service.consumeTicket(issued.ticket), null);
++  });
++
++  it("isSessionLive reflects the session row", async () => {
++    const live = fixture({ session: { id: SESSION } });
++    assert.equal(await live.service.isSessionLive(SESSION, USER), true);
++
++    const dead = fixture(null);
++    assert.equal(await dead.service.isSessionLive(SESSION, USER), false);
++  });
++});
 diff --git a/packages/services/src/services/voice-agents/voice-agent-human-support.service.spec.ts b/packages/services/src/services/voice-agents/voice-agent-human-support.service.spec.ts
 index 03141fd..b104f71 100644
 --- a/packages/services/src/services/voice-agents/voice-agent-human-support.service.spec.ts
@@ -17135,6 +17690,250 @@ index 0000000..0a6c783
 +export { createRingeeAuthClient } from "../auth/client";
 +export { signInDestination } from "../auth/contracts";
 +export type { AuthPrincipal } from "../auth/contracts";
+diff --git a/packages/frontend-shared/src/realtime/contracts.ts b/packages/frontend-shared/src/realtime/contracts.ts
+index caf1211..2486148 100644
+--- a/packages/frontend-shared/src/realtime/contracts.ts
++++ b/packages/frontend-shared/src/realtime/contracts.ts
+@@ -9,6 +9,17 @@
+ 
+ export const USER_EVENTS_WS_PATH = "/ws/user-events";
+ 
++/**
++ * Wire discriminator for the one-use ticket auth frame. Mirrors
++ * `packages/platform/src/realtime/realtime.contracts.ts` — change one,
++ * change the other. Frames without it (including legacy Clerk JWT frames)
++ * are rejected by the server; old clients must upgrade.
++ */
++export const REALTIME_TICKET_KIND = "realtime-ticket-v1";
++
++/** Ticket protocol version sent by upgraded clients. */
++export const REALTIME_TICKET_VERSION = 1;
++
+ export type RealtimeClientKind =
+   | "web"
+   | "extension"
+@@ -130,3 +141,23 @@ export interface RealtimeDevice {
+   connectedAt: string;
+   lastSeenAt: string;
+ }
++
++// ── Client → server ─────────────────────────────────────────────────────────
++
++/**
++ * First frame the client must send. The token is a one-use realtime ticket
++ * from `GET {apiUrl}/realtime/ticket`, sent in the payload rather than the URL
++ * so it never lands in access logs, proxy traces or browser history.
++ *
++ * Mirrors the platform contract — the user identity always comes from the
++ * consumed ticket server-side.
++ */
++export interface RealtimeAuthMessage {
++  type: "auth";
++  token: string;
++  kind: typeof REALTIME_TICKET_KIND;
++  ticketVersion: typeof REALTIME_TICKET_VERSION;
++  deviceId?: string;
++  deviceLabel?: string;
++  client?: RealtimeClientKind;
++}
+diff --git a/packages/frontend-shared/src/realtime/user-events-client.ts b/packages/frontend-shared/src/realtime/user-events-client.ts
+index 99a3bb7..7d57f88 100644
+--- a/packages/frontend-shared/src/realtime/user-events-client.ts
++++ b/packages/frontend-shared/src/realtime/user-events-client.ts
+@@ -1,4 +1,7 @@
+ import {
++  REALTIME_TICKET_KIND,
++  REALTIME_TICKET_VERSION,
++  RealtimeAuthMessage,
+   RealtimeClientKind,
+   RealtimeServerEvent,
+   TERMINAL_CLOSE_CODES,
+@@ -17,8 +20,12 @@ export type RealtimeConnectionStatus =
+   | "closed";
+ 
+ export interface UserEventsClientOptions {
+-  /** Returns a fresh Clerk session token. Called on every (re)connect. */
+-  getToken: () => Promise<string | null>;
++  /**
++   * Returns a fresh one-use realtime ticket. Called on every (re)connect —
++   * tickets are single-use, so a cached ticket must never be reused.
++   * Defaults to {@link fetchRealtimeTicket} against `apiUrl`.
++   */
++  getTicket?: () => Promise<string | null>;
+   /** API base URL, with or without the `/api` suffix. */
+   apiUrl?: string;
+   client?: RealtimeClientKind;
+@@ -34,7 +41,8 @@ export interface UserEventsClientOptions {
+  * Contract with the server:
+  * - The socket carries no data and accepts no commands; it only receives
+  *   account-level events (block, restore, forced disconnect).
+- * - The Clerk token travels in the first frame, never in the URL.
++ * - A one-use ticket from `GET {apiUrl}/realtime/ticket` travels in the first
++ *   frame, never in the URL. Each (re)connect fetches a fresh ticket.
+  * - `4403 account.blocked` is terminal: the client must not come back. Every
+  *   other close is retried with exponential backoff and jitter.
+  *
+@@ -142,30 +150,34 @@ export class UserEventsClient {
+   }
+ 
+   private async authenticate(socket: WebSocket): Promise<void> {
+-    let token: string | null = null;
++    let ticket: string | null = null;
+     try {
+-      token = await this.options.getToken();
++      const getTicket =
++        this.options.getTicket ?? (() => fetchRealtimeTicket(this.options.apiUrl));
++      ticket = await getTicket();
+     } catch {
+-      token = null;
++      ticket = null;
+     }
+ 
+     if (socket.readyState !== WebSocket.OPEN) return;
+-    if (!token) {
+-      // Signed out (or Clerk is briefly unavailable): drop and retry later
+-      // rather than sitting on a socket that will time out server-side.
+-      socket.close(1000, "no_token");
++    if (!ticket) {
++      // Signed out (or the ticket endpoint is briefly unavailable): drop and
++      // retry later rather than sitting on a socket that will time out
++      // server-side.
++      socket.close(1000, "no_ticket");
+       return;
+     }
+ 
+-    socket.send(
+-      JSON.stringify({
+-        type: "auth",
+-        token,
+-        deviceId: this.options.deviceId ?? getRingeeDeviceId(),
+-        deviceLabel: this.options.deviceLabel ?? describeRingeeDevice(),
+-        client: this.options.client ?? "web",
+-      }),
+-    );
++    const frame: RealtimeAuthMessage = {
++      type: "auth",
++      token: ticket,
++      kind: REALTIME_TICKET_KIND,
++      ticketVersion: REALTIME_TICKET_VERSION,
++      deviceId: this.options.deviceId ?? getRingeeDeviceId(),
++      deviceLabel: this.options.deviceLabel ?? describeRingeeDevice(),
++      client: this.options.client ?? "web",
++    };
++    socket.send(JSON.stringify(frame));
+   }
+ 
+   private scheduleReconnect(): void {
+@@ -208,6 +220,45 @@ export class UserEventsClient {
+   }
+ }
+ 
++/**
++ * The ticket endpoint lives INSIDE the `/api` prefix (it is a plain
++ * authenticated route), so the suffix is kept and normalized here.
++ */
++export function buildTicketUrl(apiUrl?: string): string {
++  const base =
++    apiUrl ??
++    (typeof process !== "undefined"
++      ? process.env.NEXT_PUBLIC_API_URL
++      : undefined) ??
++    "http://localhost:3000/api";
++
++  const url = new URL(base);
++  url.search = "";
++  url.hash = "";
++  url.pathname = `${url.pathname.replace(/\/$/, "")}/realtime/ticket`;
++  return url.toString();
++}
++
++/**
++ * Fetches a one-use realtime ticket over the authenticated HTTP API. The
++ * session cookie travels with the request; the ticket is returned once in
++ * the body and never cached by the caller.
++ */
++export async function fetchRealtimeTicket(
++  apiUrl?: string,
++): Promise<string | null> {
++  try {
++    const response = await fetch(buildTicketUrl(apiUrl), {
++      credentials: "include",
++    });
++    if (!response.ok) return null;
++    const body = (await response.json()) as { ticket?: unknown };
++    return typeof body?.ticket === "string" ? body.ticket : null;
++  } catch {
++    return null;
++  }
++}
++
+ /**
+  * The WebSocket lives on the API host but OUTSIDE the `/api` prefix, so the
+  * suffix is stripped from the configured base URL before appending the path.
+diff --git a/packages/frontend-shared/src/realtime/use-user-events.ts b/packages/frontend-shared/src/realtime/use-user-events.ts
+index 51467ce..7f24660 100644
+--- a/packages/frontend-shared/src/realtime/use-user-events.ts
++++ b/packages/frontend-shared/src/realtime/use-user-events.ts
+@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
+ import { useAuth } from "@clerk/nextjs";
+ import { RealtimeClientKind, RealtimeServerEvent } from "./contracts";
+ import {
++  fetchRealtimeTicket,
+   RealtimeConnectionStatus,
+   UserEventsClient,
+ } from "./user-events-client";
+@@ -14,6 +15,8 @@ export interface UseUserEventsOptions {
+   client?: RealtimeClientKind;
+   /** Set to false to keep the socket closed (e.g. on unauthenticated routes). */
+   enabled?: boolean;
++  /** API base URL, with or without the `/api` suffix. */
++  apiUrl?: string;
+ }
+ 
+ /**
+@@ -21,30 +24,33 @@ export interface UseUserEventsOptions {
+  * component that mounts it. Mount it ONCE per app shell — a second mount opens
+  * a second socket and shows up as a duplicate device in the backoffice.
+  *
+- * The socket is deliberately tied to the Clerk user id and nothing else: it
+- * survives navigation, org switches and token refreshes, and is torn down only
+- * on sign-out or unmount.
++ * Authentication is a one-use ticket fetched over the authenticated HTTP API
++ * before every (re)connect; the socket is torn down on sign-out or unmount.
++ * The signed-in gate below is the pre-cutover auth layer — the frontend auth
++ * migration owns replacing it.
+  */
+ export function useUserEvents({
+   onEvent,
+   client = "web",
+   enabled = true,
++  apiUrl,
+ }: UseUserEventsOptions): RealtimeConnectionStatus {
+-  const { isLoaded, isSignedIn, userId, getToken } = useAuth();
++  const { isLoaded, isSignedIn, userId } = useAuth();
+   const [status, setStatus] = useState<RealtimeConnectionStatus>("idle");
+ 
+-  // The handler and the token getter are read through refs so that a new
+-  // closure on every render never tears the socket down and back up.
++  // The handler is read through a ref so that a new closure on every render
++  // never tears the socket down and back up.
+   const onEventRef = useRef(onEvent);
+   onEventRef.current = onEvent;
+-  const getTokenRef = useRef(getToken);
+-  getTokenRef.current = getToken;
++  const apiUrlRef = useRef(apiUrl);
++  apiUrlRef.current = apiUrl;
+ 
+   useEffect(() => {
+     if (!enabled || !isLoaded || !isSignedIn || !userId) return;
+ 
+     const socketClient = new UserEventsClient({
+-      getToken: () => getTokenRef.current(),
++      getTicket: () => fetchRealtimeTicket(apiUrlRef.current),
++      apiUrl: apiUrlRef.current,
+       client,
+       onEvent: (event) => onEventRef.current(event),
+       onStatusChange: setStatus,
 diff --git a/packages/frontend-shared/src/lib/auth.contracts.ts b/packages/frontend-shared/src/lib/auth.contracts.ts
 new file mode 100644
 index 0000000..9fb0b50
@@ -17143,4 +17942,5 @@ index 0000000..9fb0b50
 @@ -0,0 +1,2 @@
 +export { readAuthPrincipal, signInDestination } from "../auth/contracts";
 +export type { AuthPrincipal } from "../auth/contracts";
+
 
