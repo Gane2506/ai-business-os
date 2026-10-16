@@ -7972,12 +7972,16 @@ index fbdbb69..19f4406 100644
  import { ExternalCarrierRepository } from "./repositories/external-carrier.repository";
  import { InboundRouteRepository } from "./repositories/inbound-route.repository";
  import { RingGroupRepository } from "./repositories/ring-group.repository";
-@@ -105,6 +107,8 @@ import { AiVoiceAgentCallRepository } from "./repositories/ai-voice-agent-call.r
+@@ -105,6 +107,12 @@ import { AiVoiceAgentCallRepository } from "./repositories/ai-voice-agent-call.r
  import { WorkspaceCompanyProfileRepository } from "./repositories/workspace-company-profile.repository";
  
  const databaseProviders = [
 +  EmailRepository,
 +  AuthSessionRepository,
++  {
++    provide: "RINGEE_AUTH_SESSION_REPOSITORY",
++    useExisting: AuthSessionRepository,
++  },
    PrismaService,
    UserRepository,
    ChatAuthRepository,
@@ -13691,10 +13695,11 @@ index 0000000..bb10476
 @@ -0,0 +1,111 @@
 +import {
 +  ForbiddenException,
++  Inject,
 +  Injectable,
 +  UnauthorizedException,
 +} from "@nestjs/common";
-+import { AuthSessionRepository } from "@ringee/database";
++import type { AuthSessionRepository } from "@ringee/database";
 +import type { AuthSessionReader, RingeeAuthPrincipal } from "@ringee/platform";
 +
 +const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -13705,7 +13710,10 @@ index 0000000..bb10476
 + */
 +@Injectable()
 +export class AuthPrincipalService {
-+  constructor(private readonly sessions: AuthSessionRepository) {}
++  constructor(
++    @Inject("RINGEE_AUTH_SESSION_REPOSITORY")
++    private readonly sessions: AuthSessionRepository,
++  ) {}
 +
 +  async resolve(
 +    reader: AuthSessionReader,
