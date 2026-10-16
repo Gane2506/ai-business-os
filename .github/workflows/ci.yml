@@ -147,7 +147,7 @@ jobs:
             --require ../../apps/backend/test/register-env.cjs \
             --require ts-node/register \
             --require tsconfig-paths/register \
-            --test src/services/email.service.spec.ts src/services/email-feedback.service.spec.ts)
+            --test src/services/email.service.spec.ts src/services/email-feedback.service.spec.ts src/services/auth-principal.service.spec.ts)
       - name: Type-check the backend application
         working-directory: workspaces/ringee-app
         run: apps/backend/node_modules/.bin/tsc --noEmit -p apps/backend/tsconfig.build.json
