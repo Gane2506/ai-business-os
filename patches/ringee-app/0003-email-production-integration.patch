@@ -17114,7 +17114,7 @@ new file mode 100644
 index 0000000..dad4140
 --- /dev/null
 +++ b/scripts/auth-runtime.test.cjs
-@@ -0,0 +1,121 @@
+@@ -0,0 +1,122 @@
 +const { test } = require("node:test");
 +const assert = require("node:assert/strict");
 +const { readFileSync, existsSync } = require("node:fs");
@@ -17144,6 +17144,7 @@ index 0000000..dad4140
 +  EMAIL_FROM_ADDRESS: "smoke-test@example.invalid",
 +  CLERK_WEBHOOK_SIGNING_SECRET: "smoke-test",
 +  APP_ENCRYPTION_SECRET: "smoke-test",
++  OAUTH_JWT_SECRET: "smoke-test",
 +  TELNYX_API_KEY: "smoke-test",
 +  TELNYX_CONNECTION_ID: "smoke-test",
 +  STRIPE_SECRET_KEY: "smoke-test",
@@ -23712,7 +23713,7 @@ index 0000000..3398e33
 +      const expectedSig = createHmac("sha256", this.jwtSecret())
 +        .update(`${headerB64}.${payloadB64}`)
 +        .digest();
-+      const actualSig = Buffer.from(base64urlDecode(sigB64), "binary");
++      const actualSig = Buffer.from(sigB64, "base64url");
 +      if (
 +        expectedSig.length !== actualSig.length ||
 +        !timingSafeEqual(expectedSig, actualSig)
