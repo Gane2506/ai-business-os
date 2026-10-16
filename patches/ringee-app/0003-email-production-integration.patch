@@ -13692,7 +13692,7 @@ new file mode 100644
 index 0000000..bb10476
 --- /dev/null
 +++ b/packages/services/src/services/auth-principal.service.ts
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,115 @@
 +import {
 +  ForbiddenException,
 +  Inject,
