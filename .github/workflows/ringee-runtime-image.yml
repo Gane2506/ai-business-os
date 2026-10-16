@@ -58,3 +58,9 @@ jobs:
             test -r apps/orchestrator/dist/apps/orchestrator/src/main.js
             test -r packages/database/node_modules/prisma/build/index.js
           '
+      - name: Exercise compiled authentication factory inside the production image
+        run: >-
+          docker run --rm --network none
+          --mount type=bind,source="$GITHUB_WORKSPACE/workspaces/ringee-app/scripts/auth-runtime.test.cjs",target=/app/scripts/auth-runtime.test.cjs,readonly
+          --entrypoint node ringee-runtime-ci
+          --test /app/scripts/auth-runtime.test.cjs
