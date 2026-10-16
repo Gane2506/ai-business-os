@@ -13486,7 +13486,7 @@ index 9dc76b6..cd6a889 100644
  export * from "./services.module";
  export * from "./chat.auth.service";
  export * from "./call.service";
-@@ -59,3 +60,8 @@ export * from "./voice-agents";
+@@ -59,3 +60,9 @@ export * from "./voice-agents";
  
  export * from "./external-carrier/external-carrier.service";
  export * from "./inbound-routing";
@@ -13495,6 +13495,7 @@ index 9dc76b6..cd6a889 100644
 +export * from "./auth-principal.service";
 +export * from "./auth-identity.service";
 +export * from "./realtime-ticket.service";
++export * from "./phone-verification.service";
 diff --git a/packages/services/src/services/number.purchased.service.ts b/packages/services/src/services/number.purchased.service.ts
 index e18da01..074e750 100644
 --- a/packages/services/src/services/number.purchased.service.ts
@@ -18632,14 +18633,15 @@ new file mode 100644
 index 0000000..0000000
 --- /dev/null
 +++ b/packages/services/src/services/phone-verification.service.ts
-@@ -0,0 +1,158 @@
+@@ -0,0 +1,160 @@
 +import { createHash, randomInt } from "node:crypto";
 +import {
 +  BadRequestException,
++  HttpException,
++  HttpStatus,
 +  Injectable,
 +  Logger,
 +  ServiceUnavailableException,
-+  TooManyRequestsException,
 +} from "@nestjs/common";
 +import { apiConfiguration } from "@ringee/configuration";
 +import { UserRepository } from "@ringee/database";
@@ -18690,8 +18692,9 @@ index 0000000..0000000
 +
 +    const rateKey = PhoneVerificationService.rateKey(userId);
 +    if (await this.redis.get(rateKey)) {
-+      throw new TooManyRequestsException(
++      throw new HttpException(
 +        "Please wait a moment before requesting another code.",
++        HttpStatus.TOO_MANY_REQUESTS,
 +      );
 +    }
 +
