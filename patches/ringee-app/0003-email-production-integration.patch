@@ -89,6 +89,159 @@ index e4c0eaa..d9ed6c6 100644
    },
    "devDependencies": {
      "@nestjs/cli": "~11.0.0",
+diff --git a/apps/backend/src/api/guards/super-admin.guard.ts b/apps/backend/src/api/guards/super-admin.guard.ts
+index 0066fbd..c6ec22c 100644
+--- a/apps/backend/src/api/guards/super-admin.guard.ts
++++ b/apps/backend/src/api/guards/super-admin.guard.ts
+@@ -8,7 +8,10 @@ import {
+   UseGuards,
+ } from "@nestjs/common";
+ import { apiConfiguration } from "@ringee/configuration";
+-import { ClerkUserRepository } from "@ringee/platform";
++import {
++  AUTH_PRINCIPAL_REQUEST_KEY,
++  type RingeeAuthPrincipal,
++} from "@ringee/platform";
+ 
+ /**
+  * The one and only source of the backoffice allowlist: BACKOFFICE_SUPER_ADMIN_EMAILS.
+@@ -32,42 +35,38 @@ export function getSuperAdminEmails(): string[] {
+ }
+ 
+ /**
+- * Verified emails of a Clerk user that appear in the allowlist.
+- * Only verified addresses are trusted so an unverified alias cannot impersonate.
++ * Whether the caller's currently verified email appears in the allowlist.
++ * Only a verified address is trusted so an unverified alias cannot
++ * impersonate a staff member. The principal's email is the verified auth
++ * email resolved server-side by the global AuthGuard — never a client claim.
+  */
+-export async function resolveSuperAdmin(clerkUserId: string): Promise<boolean> {
++export function resolveSuperAdmin(
++  user: { email: string; emailVerified: boolean } | null | undefined,
++): boolean {
+   const allowlist = getSuperAdminEmails();
+   if (allowlist.length === 0) return false;
+-
+-  try {
+-    const clerkUser = await ClerkUserRepository.findById(clerkUserId);
+-    return clerkUser.emailAddresses
+-      .filter((e) => e.verification?.status === "verified")
+-      .map((e) => e.emailAddress.toLowerCase())
+-      .some((email) => allowlist.includes(email));
+-  } catch {
+-    return false;
+-  }
++  if (!user || !user.emailVerified) return false;
++  return allowlist.includes(user.email.trim().toLowerCase());
+ }
+ 
+ /**
+  * Route guard for the backoffice (super admin) area. Runs after the global
+- * `ClerkAuthGuard` (which populates `request.clerkUserId`). Resolves the Clerk
+- * user's verified email addresses and only allows requests whose email is in
+- * the allowlist. The frontend email gate is UX only — this is the real
+- * enforcement.
++ * `AuthGuard` (which resolves the verified principal). Only requests whose
++ * currently verified email is in the allowlist pass. The frontend email gate
++ * is UX only — this is the real enforcement.
+  */
+ @Injectable()
+ export class SuperAdminGuard implements CanActivate {
+-  async canActivate(context: ExecutionContext): Promise<boolean> {
++  canActivate(context: ExecutionContext): boolean {
+     const request = context.switchToHttp().getRequest();
+-    const clerkUserId: string | undefined = request.clerkUserId;
++    const principal: RingeeAuthPrincipal | undefined =
++      request[AUTH_PRINCIPAL_REQUEST_KEY];
+ 
+-    if (!clerkUserId) {
++    if (!principal) {
+       throw new UnauthorizedException("No authenticated user in request");
+     }
+ 
+-    if (!(await resolveSuperAdmin(clerkUserId))) {
++    if (!resolveSuperAdmin(principal.dto.user)) {
+       throw new ForbiddenException("Backoffice access denied");
+     }
+ 
+diff --git a/apps/backend/src/api/guards/voice-agent-organization.guard.ts b/apps/backend/src/api/guards/voice-agent-organization.guard.ts
+index c2b5a72..e2191bf 100644
+--- a/apps/backend/src/api/guards/voice-agent-organization.guard.ts
++++ b/apps/backend/src/api/guards/voice-agent-organization.guard.ts
+@@ -4,27 +4,33 @@ import {
+   Injectable,
+   UnauthorizedException,
+ } from "@nestjs/common";
++import {
++  AUTH_PRINCIPAL_REQUEST_KEY,
++  type RingeeAuthPrincipal,
++} from "@ringee/platform";
+ import { assertVoiceAgentAccess } from "@ringee/services";
+ 
+ /**
+  * Route guard for the authenticated AI Voice Agents API.
+  *
+- * The global Clerk guard resolves the active organization before this guard
+- * runs. Provider-facing webhook and tool controllers stay separate: an
+- * authenticated callback for an existing call must continue to work.
++ * The global AuthGuard resolves the verified principal (including the active
++ * organization) before this guard runs. Provider-facing webhook and tool
++ * controllers stay separate: an authenticated callback for an existing call
++ * must continue to work.
+  */
+ @Injectable()
+ export class VoiceAgentOrganizationGuard implements CanActivate {
+   canActivate(context: ExecutionContext): boolean {
+     const request = context.switchToHttp().getRequest();
+-    const clerkUserId: string | undefined = request.clerkUserId;
++    const principal: RingeeAuthPrincipal | undefined =
++      request[AUTH_PRINCIPAL_REQUEST_KEY];
+ 
+-    if (!clerkUserId) {
++    if (!principal) {
+       throw new UnauthorizedException("No authenticated user in request");
+     }
+ 
+     assertVoiceAgentAccess({
+-      organizationId: request.clerkOrgId ?? null,
++      organizationId: principal.activeOrgId,
+     });
+     return true;
+   }
+diff --git a/apps/backend/src/api/routes/backoffice-access.controller.ts b/apps/backend/src/api/routes/backoffice-access.controller.ts
+index 18770d4..86817d0 100644
+--- a/apps/backend/src/api/routes/backoffice-access.controller.ts
++++ b/apps/backend/src/api/routes/backoffice-access.controller.ts
+@@ -1,5 +1,9 @@
+ import { Controller, Get, Req } from "@nestjs/common";
+ import type { Request } from "express";
++import {
++  AUTH_PRINCIPAL_REQUEST_KEY,
++  type RingeeAuthPrincipal,
++} from "@ringee/platform";
+ import { resolveSuperAdmin } from "../guards/super-admin.guard";
+ 
+ /**
+@@ -16,11 +20,12 @@ import { resolveSuperAdmin } from "../guards/super-admin.guard";
+ @Controller("backoffice")
+ export class BackofficeAccessController {
+   @Get("access")
+-  async getAccess(
+-    @Req() req: Request & { clerkUserId?: string },
+-  ): Promise<{ isSuperAdmin: boolean }> {
+-    const clerkUserId = req.clerkUserId;
+-    if (!clerkUserId) return { isSuperAdmin: false };
+-    return { isSuperAdmin: await resolveSuperAdmin(clerkUserId) };
++  getAccess(
++    @Req()
++    req: Request & { [AUTH_PRINCIPAL_REQUEST_KEY]?: RingeeAuthPrincipal },
++  ): { isSuperAdmin: boolean } {
++    const principal = req[AUTH_PRINCIPAL_REQUEST_KEY];
++    if (!principal) return { isSuperAdmin: false };
++    return { isSuperAdmin: resolveSuperAdmin(principal.dto.user) };
+   }
+ }
 diff --git a/apps/backend/src/api/routes/credit.controller.ts b/apps/backend/src/api/routes/credit.controller.ts
 index 62795d7..743e679 100644
 --- a/apps/backend/src/api/routes/credit.controller.ts
@@ -736,11 +889,408 @@ index c5b4885..de5e60d 100644
      ChatAuthController,
      WhatsappController,
      ClerkController,
+diff --git a/apps/backend/src/app.module.ts b/apps/backend/src/app.module.ts
+index b8544b3..8188151 100644
+--- a/apps/backend/src/app.module.ts
++++ b/apps/backend/src/app.module.ts
+@@ -1,13 +1,17 @@
+ import { Module, OnApplicationBootstrap } from "@nestjs/common";
+ import { AppController } from "./app.controller";
+ import { AppService } from "./app.service";
+-import { DatabaseModule } from "@ringee/database";
++import { DatabaseModule, PrismaService } from "@ringee/database";
+ import { ApiModule } from "./api/api.module";
+ import { ServicesModule, DialerOrchestrationService } from "@ringee/services";
+ import { McpModule } from "./mcp/mcp.module";
+-import { RedisModule } from "@ringee/platform";
++import {
++  AUTH_RUNTIME_TOKEN,
++  createBetterAuthRuntime,
++  RedisModule,
++} from "@ringee/platform";
+ import { APP_GUARD } from "@nestjs/core";
+-import { ClerkAuthGuard } from "./clerk.auth.guard";
++import { AuthGuard } from "./auth.guard";
+ import { TriggerLoopModule } from "./triggerloop/triggerloop.module";
+ import { BackendRealtimeModule } from "./realtime/realtime.module";
+ 
+@@ -24,9 +28,16 @@ import { BackendRealtimeModule } from "./realtime/realtime.module";
+   controllers: [AppController],
+   providers: [
+     AppService,
++    // Explicit opt-in Better Auth runtime. Resolved at startup; a missing or
++    // invalid BETTER_AUTH_SECRET fails bootstrap instead of serving auth.
++    {
++      provide: AUTH_RUNTIME_TOKEN,
++      useFactory: (prisma: PrismaService) => createBetterAuthRuntime(prisma),
++      inject: [PrismaService],
++    },
+     {
+       provide: APP_GUARD,
+-      useClass: ClerkAuthGuard,
++      useClass: AuthGuard,
+     },
+   ],
+ })
+diff --git a/apps/backend/src/auth-request.middleware.ts b/apps/backend/src/auth-request.middleware.ts
+new file mode 100644
+index 0000000..74802f6
+--- /dev/null
++++ b/apps/backend/src/auth-request.middleware.ts
+@@ -0,0 +1,59 @@
++import type {
++  NextFunction,
++  Request as ExpressRequest,
++  Response as ExpressResponse,
++} from "express";
++import type { BetterAuthRuntime } from "@ringee/platform";
++
++/**
++ * Mount the Better Auth request handler as plain Express middleware.
++ *
++ * The runtime speaks Web Request/Response, so this adapter converts the
++ * Express request (raw body captured by `express.raw`) and writes the
++ * resulting response back, preserving multi-value `set-cookie` headers.
++ * The runtime itself only serves its explicit sign-in/sign-out whitelist
++ * and returns 404 for every other path, method or origin.
++ */
++export function createAuthRequestMiddleware(runtime: BetterAuthRuntime) {
++  return async function authRequestMiddleware(
++    req: ExpressRequest,
++    res: ExpressResponse,
++    next: NextFunction,
++  ): Promise<void> {
++    try {
++      const headers = new Headers();
++      for (const [name, value] of Object.entries(req.headers)) {
++        if (value === undefined) continue;
++        if (Array.isArray(value)) {
++          for (const entry of value) headers.append(name, entry);
++        } else {
++          headers.append(name, value);
++        }
++      }
++      const url = new URL(
++        req.originalUrl,
++        `${req.protocol}://${req.get("host")}`,
++      );
++      const init: RequestInit = { method: req.method, headers };
++      if (
++        req.method !== "GET" &&
++        req.method !== "HEAD" &&
++        Buffer.isBuffer(req.body)
++      ) {
++        init.body = req.body;
++      }
++      const response = await runtime.handle(new Request(url, init));
++
++      res.status(response.status);
++      response.headers.forEach((value, key) => {
++        // `forEach` joins repeated headers; set-cookie must stay separate.
++        if (key.toLowerCase() !== "set-cookie") res.setHeader(key, value);
++      });
++      const setCookies = response.headers.getSetCookie();
++      if (setCookies.length > 0) res.setHeader("set-cookie", setCookies);
++      res.send(Buffer.from(await response.arrayBuffer()));
++    } catch (error) {
++      next(error);
++    }
++  };
++}
+diff --git a/apps/backend/src/auth.guard.ts b/apps/backend/src/auth.guard.ts
+new file mode 100644
+index 0000000..a223baa
+--- /dev/null
++++ b/apps/backend/src/auth.guard.ts
+@@ -0,0 +1,75 @@
++import {
++  CanActivate,
++  ExecutionContext,
++  Inject,
++  Injectable,
++} from "@nestjs/common";
++import { Reflector } from "@nestjs/core";
++import {
++  AUTH_PRINCIPAL_REQUEST_KEY,
++  AUTH_RUNTIME_TOKEN,
++  IS_PUBLIC_KEY,
++  type AuthSessionReader,
++  type RingeeAuthPrincipal,
++} from "@ringee/platform";
++import { AuthPrincipalService } from "@ringee/services";
++
++/**
++ * Global authentication guard. Every route is denied by default; only
++ * handlers marked `@Public()` skip authentication (each such route must
++ * carry its own proof of authorization).
++ *
++ * The complete server principal is resolved once per request through the
++ * provider-neutral AuthPrincipalService and stored on the request under a
++ * neutral key. Route-scoped guards and the @CurrentUser() decorator read
++ * that principal — never provider request fields.
++ */
++@Injectable()
++export class AuthGuard implements CanActivate {
++  constructor(
++    private readonly reflector: Reflector,
++    private readonly principalService: AuthPrincipalService,
++    @Inject(AUTH_RUNTIME_TOKEN)
++    private readonly sessionReader: AuthSessionReader,
++  ) {}
++
++  async canActivate(context: ExecutionContext): Promise<boolean> {
++    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
++      context.getHandler(),
++      context.getClass(),
++    ]);
++
++    if (isPublic) {
++      return true;
++    }
++
++    const request = context.switchToHttp().getRequest();
++    const principal = await this.principalService.resolve(
++      this.sessionReader,
++      toWebHeaders(request.headers),
++    );
++
++    request[AUTH_PRINCIPAL_REQUEST_KEY] =
++      principal satisfies RingeeAuthPrincipal;
++    // Neutral fields for route-scoped guards (org admin, voice agent, ...).
++    request.activeOrgId = principal.activeOrgId;
++    request.activeOrgRole = principal.activeOrgRole;
++    return true;
++  }
++}
++
++/** Copy Express headers into a Web Headers instance for the session reader. */
++function toWebHeaders(
++  input: Record<string, string | string[] | undefined> | undefined,
++): Headers {
++  const headers = new Headers();
++  for (const [name, value] of Object.entries(input ?? {})) {
++    if (value === undefined) continue;
++    if (Array.isArray(value)) {
++      for (const entry of value) headers.append(name, entry);
++    } else {
++      headers.append(name, value);
++    }
++  }
++  return headers;
++}
+diff --git a/apps/backend/src/clerk.auth.guard.ts b/apps/backend/src/clerk.auth.guard.ts
+deleted file mode 100644
+index ebf049a..0000000
+--- a/apps/backend/src/clerk.auth.guard.ts
++++ /dev/null
+@@ -1,193 +0,0 @@
+-import {
+-  CanActivate,
+-  ExecutionContext,
+-  ForbiddenException,
+-  Injectable,
+-  UnauthorizedException,
+-} from "@nestjs/common";
+-import { Reflector } from "@nestjs/core";
+-import { ClerkUserRepository, IS_PUBLIC_KEY } from "@ringee/platform";
+-import { getAuth } from "@clerk/express";
+-import {
+-  CLERK_USER_BAN_REASON,
+-  OrganizationService,
+-  UserService,
+-} from "@ringee/services";
+-import { UserRepository } from "@ringee/database";
+-
+-@Injectable()
+-export class ClerkAuthGuard implements CanActivate {
+-  private readonly pendingUserSyncs = new Map<string, Promise<string>>();
+-
+-  constructor(
+-    private reflector: Reflector,
+-    private readonly organizationService: OrganizationService,
+-    private readonly userService: UserService,
+-    private readonly userRepository: UserRepository,
+-  ) {}
+-
+-  async canActivate(context: ExecutionContext): Promise<boolean> {
+-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+-      context.getHandler(),
+-      context.getClass(),
+-    ]);
+-
+-    if (isPublic) {
+-      return true;
+-    }
+-
+-    const request = context.switchToHttp().getRequest();
+-
+-    const { isAuthenticated, orgId, orgRole, userId } = getAuth(request);
+-
+-    if (!isAuthenticated) {
+-      throw new UnauthorizedException("Unauthorized");
+-    }
+-
+-    const ringeeUser = await this.findCachedUserByClerkId(userId);
+-    if (
+-      ringeeUser?.blockedAt &&
+-      !(await this.restoreMissedClerkUnban(ringeeUser, userId))
+-    ) {
+-      throw new ForbiddenException("Account disabled");
+-    }
+-
+-    if (orgId) {
+-      const org = await this.organizationService.getByClerkId(orgId);
+-
+-      if (!org) {
+-        throw new UnauthorizedException("Unauthorized");
+-      }
+-
+-      request.clerkOrgId = org?.id;
+-      request.orgRole = orgRole || null;
+-    }
+-
+-    request.clerkUserId = userId;
+-    request.resolveRingeeUser = () => this.resolveRingeeUser(userId);
+-
+-    return isAuthenticated;
+-  }
+-
+-  /**
+-   * Repair a missed or already-delivered Clerk unban webhook on the user's
+-   * first authenticated request. Fail closed if Clerk cannot be reached, and
+-   * never lift a block created by another Ringee enforcement path.
+-   */
+-  private async restoreMissedClerkUnban(
+-    ringeeUser: { id: string; blockedReason: string | null },
+-    clerkUserId: string,
+-  ): Promise<boolean> {
+-    if (ringeeUser.blockedReason !== CLERK_USER_BAN_REASON) {
+-      return false;
+-    }
+-
+-    try {
+-      const clerkUser = await ClerkUserRepository.findById(clerkUserId);
+-      if (clerkUser.banned) {
+-        return false;
+-      }
+-
+-      const unblocked = await this.userService.unblockAccount(
+-        ringeeUser.id,
+-        CLERK_USER_BAN_REASON,
+-      );
+-      return Boolean(unblocked);
+-    } catch (error) {
+-      console.warn(
+-        `Could not reconcile Clerk access for Ringee user ${ringeeUser.id}`,
+-        error,
+-      );
+-      return false;
+-    }
+-  }
+-
+-  /**
+-   * Clerk can redirect a newly-created user before the `user.created` webhook
+-   * has created the matching local row and stored its UUID in private metadata.
+-   * Resolve that race on the first authenticated request. The post-signup
+-   * `/auth/sign-up/continue` page intentionally makes such a request before it
+-   * renders, so the account is already manageable from Ringee's backoffice
+-   * while phone verification is still pending.
+-   */
+-  private async resolveRingeeUser(clerkUserId: string) {
+-    const clerkUser = await ClerkUserRepository.findById(clerkUserId);
+-    const privateMetadata = clerkUser.privateMetadata as Record<
+-      string,
+-      unknown
+-    >;
+-    const metadataUserId = privateMetadata.userId;
+-
+-    if (typeof metadataUserId === "string" && metadataUserId) {
+-      return { clerkUser, ringeeUserId: metadataUserId };
+-    }
+-
+-    let pendingSync = this.pendingUserSyncs.get(clerkUserId);
+-
+-    if (!pendingSync) {
+-      pendingSync = this.syncRingeeUser(clerkUserId, clerkUser);
+-      this.pendingUserSyncs.set(clerkUserId, pendingSync);
+-    }
+-
+-    try {
+-      const ringeeUserId = await pendingSync;
+-      return { clerkUser, ringeeUserId };
+-    } finally {
+-      if (this.pendingUserSyncs.get(clerkUserId) === pendingSync) {
+-        this.pendingUserSyncs.delete(clerkUserId);
+-      }
+-    }
+-  }
+-
+-  private async syncRingeeUser(
+-    clerkUserId: string,
+-    clerkUser: Awaited<ReturnType<typeof ClerkUserRepository.findById>>,
+-  ): Promise<string> {
+-    const existing = await this.findCachedUserByClerkId(clerkUserId);
+-    const user =
+-      existing ?? (await this.userRepository.syncFromClerkUser(clerkUser));
+-
+-    if (!existing) {
+-      await this.userService.warmUserCache(user).catch((error) => {
+-        // Authentication must remain available if Redis has a transient
+-        // outage; PostgreSQL and Clerk are still the sources of truth.
+-        console.warn(
+-          `Could not cache Ringee user for Clerk user ${clerkUserId}`,
+-          error,
+-        );
+-      });
+-    }
+-
+-    try {
+-      await ClerkUserRepository.updateMetadata(clerkUserId, {
+-        privateMetadata: {
+-          ...(clerkUser.privateMetadata as Record<string, unknown>),
+-          userId: user.id,
+-        },
+-      });
+-    } catch (error) {
+-      // The local user is already usable. Do not fail the dashboard if writing
+-      // the Clerk metadata is briefly unavailable; a later request or webhook
+-      // will retry the repair.
+-      console.warn(
+-        `Could not persist Ringee user metadata for Clerk user ${clerkUserId}`,
+-        error,
+-      );
+-    }
+-
+-    return user.id;
+-  }
+-
+-  private async findCachedUserByClerkId(clerkUserId: string) {
+-    try {
+-      return await this.userService.getCachedByClerkId(clerkUserId);
+-    } catch (error) {
+-      // Redis is an optimization here, not a signup dependency.
+-      console.warn(
+-        `Could not read cached Ringee user for Clerk user ${clerkUserId}`,
+-        error,
+-      );
+-      return this.userRepository.findByClerkId(clerkUserId);
+-    }
+-  }
+-}
 diff --git a/apps/backend/src/main.ts b/apps/backend/src/main.ts
-index 9430f31..841236a 100644
+index 9430f31..33cb968 100644
 --- a/apps/backend/src/main.ts
 +++ b/apps/backend/src/main.ts
-@@ -16,6 +16,19 @@ import { validationExceptionFactory } from "./api/validation-error";
+@@ -9,13 +9,27 @@ import { AppModule } from "./app.module";
+ import { RequestMethod, ValidationPipe } from "@nestjs/common";
+ import { apiConfiguration } from "@ringee/configuration";
+ import express from "express";
+-import { clerkMiddleware } from "@ringee/platform";
++import { AUTH_RUNTIME_TOKEN, type BetterAuthRuntime } from "@ringee/platform";
+ import { sdkCors } from "./api/sdk/sdk-cors";
+ import { validationExceptionFactory } from "./api/validation-error";
++import { createAuthRequestMiddleware } from "./auth-request.middleware";
+ 
  async function bootstrap() {
    const app = await NestFactory.create(AppModule, { rawBody: true });
  
@@ -760,6 +1310,41 @@ index 9430f31..841236a 100644
    if (apiConfiguration.TRUST_PROXY_HOPS > 0) {
      // Use req.ip only after Express has been told exactly how many proxy hops
      // are trusted. Trusting arbitrary forwarded headers would let attackers
+@@ -59,6 +73,25 @@ async function bootstrap() {
+ 
+   app.use("/webhooks/clerk", express.raw({ type: "application/json" }));
+ 
++  // Better Auth request handler mounted as plain Express middleware BEFORE
++  // Nest's JSON body parser consumes the raw bytes. Prefix mount (Express
++  // 5-compatible); the runtime 404s every path outside its explicit
++  // sign-in/sign-out whitelist, so no other route is affected. The runtime
++  // provider resolves once the application has initialized.
++  let authMiddleware:
++    | ReturnType<typeof createAuthRequestMiddleware>
++    | undefined;
++  app.use(
++    "/api/auth",
++    express.raw({ type: () => true, limit: "512kb" }),
++    (req, res, next) => {
++      authMiddleware ??= createAuthRequestMiddleware(
++        app.get<BetterAuthRuntime>(AUTH_RUNTIME_TOKEN),
++      );
++      return authMiddleware(req, res, next);
++    },
++  );
++
+   app.setGlobalPrefix("api", {
+     // Verification crawlers (e.g. OpenAI Apps SDK domain check) fetch the
+     // `.well-known` challenge at the bare hostname root, not under `/api`.
+@@ -70,8 +103,6 @@ async function bootstrap() {
+     ],
+   });
+ 
+-  app.use(clerkMiddleware());
+-
+   // Both WebSocket servers self-attach to this HTTP server from their
+   // `onApplicationBootstrap` hooks: the Telnyx media stream on /media-stream
+   // and the per-user events gateway on /ws/user-events. Each one claims only
 diff --git a/apps/backend/src/triggerloop/actions/send-email.handler.ts b/apps/backend/src/triggerloop/actions/send-email.handler.ts
 index 7bdc0ea..820991e 100644
 --- a/apps/backend/src/triggerloop/actions/send-email.handler.ts
@@ -7675,6 +8260,146 @@ index aa9ebf7..0c35899 100644
    },
    "devDependencies": {
      "@nestjs/cli": "~11.0.0",
+diff --git a/packages/platform/src/auth/clerk/current.user.ts b/packages/platform/src/auth/clerk/current.user.ts
+deleted file mode 100644
+index bc7c065..0000000
+--- a/packages/platform/src/auth/clerk/current.user.ts
++++ /dev/null
+@@ -1,62 +0,0 @@
+-import {
+-  createParamDecorator,
+-  ExecutionContext,
+-  InternalServerErrorException,
+-  UnauthorizedException,
+-} from "@nestjs/common";
+-import { ClerkUserRepository } from "./clerk.user.repository";
+-
+-export const CurrentUser = createParamDecorator(
+-  async (_data: unknown, ctx: ExecutionContext) => {
+-    const request = ctx.switchToHttp().getRequest();
+-
+-    const clerkUserId = request.clerkUserId;
+-    const clerkOrgId = request.clerkOrgId;
+-    const activeOrgRole = request.orgRole;
+-
+-    if (!clerkUserId) {
+-      throw new UnauthorizedException("No authenticated user in request");
+-    }
+-
+-    let user;
+-    let resolvedUserId: string | undefined;
+-    try {
+-      if (typeof request.resolveRingeeUser === "function") {
+-        const resolved = await request.resolveRingeeUser();
+-        user = resolved.clerkUser;
+-        resolvedUserId = resolved.ringeeUserId;
+-      } else {
+-        user = await ClerkUserRepository.findById(clerkUserId);
+-      }
+-    } catch (error) {
+-      console.error("Failed to resolve the current user:", error);
+-      throw new InternalServerErrorException(
+-        "Failed to resolve user from Clerk",
+-      );
+-    }
+-
+-    if (!user) {
+-      throw new UnauthorizedException("Clerk user not found");
+-    }
+-
+-    const mappedUser = ClerkUserRepository.mapToUser(user);
+-    const privateMetadata = user.privateMetadata as Record<string, unknown>;
+-    const metadataUserId = privateMetadata.userId;
+-    const rawUserId =
+-      resolvedUserId ??
+-      (typeof metadataUserId === "string" ? metadataUserId : undefined);
+-
+-    if (!rawUserId) {
+-      throw new UnauthorizedException(
+-        "Clerk user is missing privateMetadata.userId",
+-      );
+-    }
+-
+-    return {
+-      ...mappedUser,
+-      id: rawUserId,
+-      activeOrgId: clerkOrgId ?? null,
+-      activeOrgRole,
+-    };
+-  },
+-);
+diff --git a/packages/platform/src/auth/clerk/index.ts b/packages/platform/src/auth/clerk/index.ts
+index 717c72b..51ce1c3 100644
+--- a/packages/platform/src/auth/clerk/index.ts
++++ b/packages/platform/src/auth/clerk/index.ts
+@@ -1,4 +1,3 @@
+-export * from "./current.user";
+ export * from "./clerk.user.repository";
+ export * from "./clerk.organization.repository";
+ export {
+diff --git a/packages/platform/src/auth/current.user.ts b/packages/platform/src/auth/current.user.ts
+new file mode 100644
+index 0000000..142e4d5
+--- /dev/null
++++ b/packages/platform/src/auth/current.user.ts
+@@ -0,0 +1,29 @@
++import {
++  createParamDecorator,
++  ExecutionContext,
++  UnauthorizedException,
++} from "@nestjs/common";
++import { AUTH_PRINCIPAL_REQUEST_KEY } from "./auth-principal.types";
++import type { CurrentUserData } from "./ownership.types";
++import type { RingeeAuthPrincipal } from "./auth-principal.types";
++
++/**
++ * Provider-neutral current-user decorator.
++ *
++ * Reads the verified principal that the global AuthGuard resolved once per
++ * request. There is no provider fetch and no identity recovery here: if the
++ * principal is missing the request was never authenticated.
++ */
++export const CurrentUser = createParamDecorator(
++  (_data: unknown, ctx: ExecutionContext): CurrentUserData => {
++    const request = ctx.switchToHttp().getRequest();
++    const principal: RingeeAuthPrincipal | undefined =
++      request[AUTH_PRINCIPAL_REQUEST_KEY];
++
++    if (!principal || typeof principal.id !== "string") {
++      throw new UnauthorizedException("No authenticated user in request");
++    }
++
++    return principal;
++  },
++);
+diff --git a/packages/platform/src/auth/org-admin.guard.ts b/packages/platform/src/auth/org-admin.guard.ts
+index 19e95b5..0397185 100644
+--- a/packages/platform/src/auth/org-admin.guard.ts
++++ b/packages/platform/src/auth/org-admin.guard.ts
+@@ -27,8 +27,9 @@ export const AllowOrgMember = () => SetMetadata(ALLOW_ORG_MEMBER_KEY, true);
+  * - Inside an organization, only `org:admin` may pass; `org:member` is denied,
+  *   unless the handler is marked `@AllowOrgMember()`.
+  *
+- * Relies on `request.clerkOrgId` / `request.orgRole` being populated by the
+- * global `ClerkAuthGuard` (which runs before route-scoped guards).
++ * Reads the neutral `activeOrgId` / `activeOrgRole` fields populated by the
++ * global `AuthGuard` (which runs before route-scoped guards) from the
++ * verified server principal. Never trusts client-supplied role claims.
+  */
+ @Injectable()
+ export class OrgAdminGuard implements CanActivate {
+@@ -42,9 +43,9 @@ export class OrgAdminGuard implements CanActivate {
+     if (allowMember) return true;
+ 
+     const request = context.switchToHttp().getRequest();
+-    const hasOrg = !!request.clerkOrgId;
++    const hasOrg = !!request.activeOrgId;
+     if (!hasOrg) return true;
+-    if (request.orgRole === "org:admin") return true;
++    if (request.activeOrgRole === "org:admin") return true;
+     throw new ForbiddenException(
+       "This feature is restricted to organization admins",
+     );
 diff --git a/packages/platform/src/email/email-result.ts b/packages/platform/src/email/email-result.ts
 index 486b077..3539dbf 100644
 --- a/packages/platform/src/email/email-result.ts
@@ -10794,26 +11519,28 @@ index 8a9726e..72f8cc1 100644
  
    private escapeHtml(value: string): string {
 diff --git a/packages/services/src/services/services.module.ts b/packages/services/src/services/services.module.ts
-index 5a50ace..ae009b0 100644
+index 5a50ace..985d2cb 100644
 --- a/packages/services/src/services/services.module.ts
 +++ b/packages/services/src/services/services.module.ts
-@@ -1,4 +1,7 @@
+@@ -1,4 +1,8 @@
 +import { EmailService } from "./email.service";
  import { ExternalCarrierService } from "./external-carrier/external-carrier.service";
 +import { EmailFeedbackService } from "./email-feedback.service";
++import { AuthPrincipalService } from "./auth-principal.service";
 +import { MauticFeedbackClient, SnsFeedbackVerifier } from "@ringee/platform";
  import {
    AiReceptionistDestinationHandler,
    DeskPhoneDestinationHandler,
-@@ -214,6 +217,7 @@ import {
+@@ -214,6 +218,8 @@ import {
  } from "./security";
  
  const servicesProviders = [
 +  EmailService,
++  AuthPrincipalService,
    UserService,
    ChatAuthService,
    CallTranscriptionService,
-@@ -448,6 +452,9 @@ const reminderChannelsProvider: Provider = {
+@@ -448,6 +454,9 @@ const reminderChannelsProvider: Provider = {
  };
  
  const allProviders: Provider[] = [
@@ -12316,11 +13043,25 @@ index 9a2fbb6..4684ea0 100644
      "@faker-js/faker": "^9.3.0",
 diff --git a/packages/platform/src/auth/auth-principal.types.ts b/packages/platform/src/auth/auth-principal.types.ts
 new file mode 100644
-index 0000000..c543bc1
+index 0000000..b42ebee
 --- /dev/null
 +++ b/packages/platform/src/auth/auth-principal.types.ts
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,49 @@
 +import type { CurrentUserData } from "./ownership.types";
++
++/**
++ * Nest DI token for the request-scoped Better Auth session reader.
++ * Provided by the backend application module; guards inject this token,
++ * never the Better Auth SDK.
++ */
++export const AUTH_RUNTIME_TOKEN = "RINGEE_AUTH_RUNTIME";
++
++/**
++ * Express request field carrying the verified RingeeAuthPrincipal.
++ * Set once per request by the global AuthGuard; decorators and
++ * route-scoped guards read it instead of provider-specific fields.
++ */
++export const AUTH_PRINCIPAL_REQUEST_KEY = "principal";
 +
 +/** Provider-neutral values. No bearer, metadata, Clerk ID or DB secret crosses this boundary. */
 +export interface VerifiedAuthSession {
@@ -12751,13 +13492,14 @@ index 0000000..e175b1a
 +  });
 +}
 diff --git a/packages/platform/src/auth/index.ts b/packages/platform/src/auth/index.ts
-index e9e6e22..682aa13 100644
+index e9e6e22..cf60f32 100644
 --- a/packages/platform/src/auth/index.ts
 +++ b/packages/platform/src/auth/index.ts
-@@ -5,3 +5,5 @@ export * from "./public.decorator";
+@@ -5,3 +5,6 @@ export * from "./public.decorator";
  export * from "./clerk";
  export * from "./ownership.types";
  export * from "./org-admin.guard";
++export * from "./current.user";
 +export * from "./auth-principal.types";
 +export * from "./better-auth/better-auth.runtime";
 diff --git a/packages/services/src/services/auth-principal.service.spec.ts b/packages/services/src/services/auth-principal.service.spec.ts
@@ -12943,31 +13685,27 @@ index 0000000..a487cb3
 +});
 diff --git a/packages/services/src/services/auth-principal.service.ts b/packages/services/src/services/auth-principal.service.ts
 new file mode 100644
-index 0000000..d114083
+index 0000000..bb10476
 --- /dev/null
 +++ b/packages/services/src/services/auth-principal.service.ts
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,111 @@
 +import {
 +  ForbiddenException,
-+  Inject,
 +  Injectable,
 +  UnauthorizedException,
 +} from "@nestjs/common";
-+import type { AuthSessionRepository } from "@ringee/database";
++import { AuthSessionRepository } from "@ringee/database";
 +import type { AuthSessionReader, RingeeAuthPrincipal } from "@ringee/platform";
 +
 +const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 +
 +/**
-+ * Dormant until every consumer is migrated. Resolve on every request/stream revalidation.
++ * Resolve on every request/stream revalidation.
 + * A provider session is authentication only; current domain rows authorize Ringee.
 + */
 +@Injectable()
 +export class AuthPrincipalService {
-+  constructor(
-+    @Inject("RINGEE_AUTH_SESSION_REPOSITORY")
-+    private readonly sessions: AuthSessionRepository,
-+  ) {}
++  constructor(private readonly sessions: AuthSessionRepository) {}
 +
 +  async resolve(
 +    reader: AuthSessionReader,
