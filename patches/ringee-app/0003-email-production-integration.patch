@@ -900,6 +900,7 @@ index 16fae7f..94d1a15 100644
 -  return UUID_RE.test(value);
  }
 diff --git a/apps/backend/src/api/routes/routes.module.ts b/apps/backend/src/api/routes/routes.module.ts
+index c5b4885..3cf0fe0 100644
 --- a/apps/backend/src/api/routes/routes.module.ts
 +++ b/apps/backend/src/api/routes/routes.module.ts
 @@ -1,4 +1,5 @@
@@ -918,7 +919,15 @@ diff --git a/apps/backend/src/api/routes/routes.module.ts b/apps/backend/src/api
  import { MeetingController } from "./meeting.controller";
  import { CalendarController } from "./calendar.controller";
  import { TriggerLoopModule } from "../../triggerloop/triggerloop.module";
-@@ -92,6 +96,7 @@ import { PersonalApiKeyGuard } from "../guards/personal-api-key.guard";
+@@ -59,6 +63,7 @@ import { CustomIntegrationsController } from "./custom-integrations.controller";
+ import { CustomIntegrationsWebhookController } from "./custom-integrations.webhook.controller";
+ import { McpController } from "./mcp.controller";
+ import { McpChatgptController } from "./mcp.chatgpt.controller";
++import { OAuthController } from "./oauth.controller";
+ import { CliAuthController } from "./cli-auth.controller";
+ import { PersonalApiKeyController } from "./personal-api-key.controller";
+ import { CallSessionController } from "./call-session.controller";
+@@ -92,6 +97,7 @@ import { PersonalApiKeyGuard } from "../guards/personal-api-key.guard";
  
  @Module({
    controllers: [
@@ -926,7 +935,7 @@ diff --git a/apps/backend/src/api/routes/routes.module.ts b/apps/backend/src/api
      ChatAuthController,
      WhatsappController,
      ClerkController,
-@@ -120,6 +125,9 @@ import { PersonalApiKeyGuard } from "../guards/personal-api-key.guard";
+@@ -120,6 +126,9 @@ import { PersonalApiKeyGuard } from "../guards/personal-api-key.guard";
      ContactTagController,
      CallScriptController,
      OnboardingController,
@@ -936,7 +945,14 @@ diff --git a/apps/backend/src/api/routes/routes.module.ts b/apps/backend/src/api
      MeetingController,
      CalendarController,
      CrmController,
-
+@@ -137,6 +146,7 @@ import { PersonalApiKeyGuard } from "../guards/personal-api-key.guard";
+     // /mcp/:id/* param routes, or "chatgpt" would be captured as an :id.
+     McpChatgptController,
+     McpController,
++    OAuthController,
+     CliAuthController,
+     PersonalApiKeyController,
+     CallSessionController,
 diff --git a/apps/backend/src/api/routes/user-access-enforcement.service.spec.ts b/apps/backend/src/api/routes/user-access-enforcement.service.spec.ts
 new file mode 100644
 index 0000000..fa62135
@@ -2102,10 +2118,10 @@ index 7bdc0ea..820991e 100644
      const externalReference =
 diff --git a/apps/backend/test/register-env.cjs b/apps/backend/test/register-env.cjs
 new file mode 100644
-index 0000000..0d21472
+index 0000000..0b6913a
 --- /dev/null
 +++ b/apps/backend/test/register-env.cjs
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,25 @@
 +// Deterministic placeholders satisfy import-time configuration validation.
 +// Tests supply in-memory services; none of these credentials reach a provider.
 +Object.assign(process.env, {
@@ -2128,6 +2144,7 @@ index 0000000..0d21472
 +  TELNYX_CONNECTION_ID: "test",
 +  STRIPE_SECRET_KEY: "test",
 +  STRIPE_WEBHOOK_SECRET: "test",
++  OAUTH_JWT_SECRET: "test-oauth-jwt-secret-32-chars-min!",
 +  AI_PROVIDER: "openai",
 +});
 diff --git a/apps/chatgpt-app/.env.example b/apps/chatgpt-app/.env.example
@@ -2883,6 +2900,7 @@ index 437c062..c74da4d 100644
  }
  
 diff --git a/packages/configuration/src/api.configuration.ts b/packages/configuration/src/api.configuration.ts
+index 4bcdd14..9c858b6 100644
 --- a/packages/configuration/src/api.configuration.ts
 +++ b/packages/configuration/src/api.configuration.ts
 @@ -16,7 +16,8 @@ const apiConfiguration = {
@@ -2895,7 +2913,7 @@ diff --git a/packages/configuration/src/api.configuration.ts b/packages/configur
    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY!,
    PUBLIC_BACKEND_URL: process.env.BACKEND_URL,
    REDIS_URL: process.env.REDIS_URL!,
-@@ -26,9 +27,31 @@ const apiConfiguration = {
+@@ -26,14 +27,42 @@ const apiConfiguration = {
    TEMPORAL_ADDRESS: process.env.TEMPORAL_ADDRESS || "localhost:7233",
    TEMPORAL_NAMESPACE: process.env.TEMPORAL_NAMESPACE || "default",
    TEMPORAL_TASK_QUEUE: process.env.TEMPORAL_TASK_QUEUE || "ringee",
@@ -2928,7 +2946,18 @@ diff --git a/packages/configuration/src/api.configuration.ts b/packages/configur
    BACKEND_URL: process.env.BACKEND_URL!,
    CLERK_WEBHOOK_SIGNING_SECRET: process.env.CLERK_WEBHOOK_SIGNING_SECRET!,
    CLERK_PUBLISHABLE_KEY: process.env.CLERK_PUBLISHABLE_KEY!,
-@@ -96,6 +119,9 @@ const apiConfiguration = {
+   CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY!,
+   APP_ENCRYPTION_SECRET: process.env.APP_ENCRYPTION_SECRET!,
++  /**
++   * Dedicated secret for signing OAuth access tokens (HS256). Separate from
++   * APP_ENCRYPTION_SECRET and BETTER_AUTH_SECRET by purpose: compromise of
++   * one must not imply compromise of the others.
++   */
++  OAUTH_JWT_SECRET: process.env.OAUTH_JWT_SECRET!,
+   TELNYX_API_KEY: process.env.TELNYX_API_KEY!,
+   TELNYX_CONNECTION_ID: process.env.TELNYX_CONNECTION_ID!,
+   /**
+@@ -96,6 +125,9 @@ const apiConfiguration = {
    // Caller ID presented by Ringee-owned outbound flows when no workspace number
    // applies (optional).
    RINGEE_PUBLIC_CALLER_ID: process.env.RINGEE_PUBLIC_CALLER_ID,
@@ -2938,7 +2967,7 @@ diff --git a/packages/configuration/src/api.configuration.ts b/packages/configur
    // Destination for internal free-trial / credit request notifications.
    RINGEE_TEAM_EMAIL:
      process.env.RINGEE_TEAM_EMAIL || process.env.EMAIL_FROM_ADDRESS,
-@@ -204,11 +230,14 @@ const apiConfiguration = {
+@@ -204,11 +236,14 @@ const apiConfiguration = {
    APOLLO_API_BASE_URL:
      process.env.APOLLO_API_BASE_URL || "https://api.apollo.io",
    // ── Ringee AI ──
@@ -2957,7 +2986,7 @@ diff --git a/packages/configuration/src/api.configuration.ts b/packages/configur
    OPENAI_DEFAULT_MODEL: process.env.OPENAI_DEFAULT_MODEL || "gpt-5.4-mini",
    OPENAI_SUMMARY_MODEL: process.env.OPENAI_SUMMARY_MODEL || "gpt-5.4-mini",
    ANTHROPIC_DEFAULT_MODEL:
-@@ -314,8 +343,31 @@ if (!apiConfiguration.FRONTEND_URL) {
+@@ -314,8 +349,31 @@ if (!apiConfiguration.FRONTEND_URL) {
    errors.push("FRONTEND_URL is not defined");
  }
  
@@ -2991,7 +3020,7 @@ diff --git a/packages/configuration/src/api.configuration.ts b/packages/configur
  }
  
  if (
-@@ -404,8 +456,8 @@ if (!apiConfiguration.REDIS_URL) {
+@@ -404,8 +462,8 @@ if (!apiConfiguration.REDIS_URL) {
    errors.push("REDIS_URL is not defined");
  }
  
@@ -3002,7 +3031,17 @@ diff --git a/packages/configuration/src/api.configuration.ts b/packages/configur
  }
  
  if (!apiConfiguration.EMAIL_FROM_NAME) {
-
+@@ -428,6 +486,10 @@ if (!apiConfiguration.APP_ENCRYPTION_SECRET) {
+   errors.push("APP_ENCRYPTION_SECRET is not defined");
+ }
+ 
++if (!apiConfiguration.OAUTH_JWT_SECRET) {
++  errors.push("OAUTH_JWT_SECRET is not defined");
++}
++
+ if (!apiConfiguration.WHATSAPP_PHONE_NUMBER) {
+   errors.push("WHATSAPP_PHONE_NUMBER is not defined");
+ }
 diff --git a/packages/database/AGENTS.md b/packages/database/AGENTS.md
 index 5dfe91f..170606f 100644
 --- a/packages/database/AGENTS.md
@@ -8211,7 +8250,7 @@ index 0000000..54a0410
 +# Please add this file in your version-control system (i.e. Git)
 +provider = "postgresql"
 diff --git a/packages/database/prisma/schema.prisma b/packages/database/prisma/schema.prisma
-index 6fa8332..84ef929 100644
+index 6fa8332..595225c 100644
 --- a/packages/database/prisma/schema.prisma
 +++ b/packages/database/prisma/schema.prisma
 @@ -370,6 +370,10 @@ enum SocialPlatform {
@@ -8294,7 +8333,7 @@ index 6fa8332..84ef929 100644
    /// When a call to the contact was found after it joined the list — placed by
    /// anyone in the workspace, from any surface. The list records it from the
    /// workspace's calls (LIST-005); null while the contact is still to call.
-@@ -4944,3 +4959,199 @@ model InboundRingAttempt {
+@@ -4944,3 +4959,233 @@ model InboundRingAttempt {
    @@index([providerCallSessionId])
    @@index([recipientCallSessionId])
  }
@@ -8492,6 +8531,40 @@ index 6fa8332..84ef929 100644
 +  @@index([organizationId])
 +  @@index([inviterId])
 +  @@index([email])
++  @@index([expiresAt])
++}
++
++/// Statically registered OAuth clients (browser extension, ChatGPT connector).
++/// There is no dynamic client registration: only these rows may obtain
++/// authorization codes. Redirect URIs are exact-match only.
++model OAuthClient {
++  id           String   @id @default(uuid()) @db.Uuid
++  clientId     String   @unique
++  name         String
++  redirectUris String[]
++  scopes       String[]
++  isPublic     Boolean  @default(true)
++  createdAt    DateTime @default(now())
++
++  refreshTokens OAuthRefreshToken[]
++}
++
++/// SHA-256 digests of opaque OAuth refresh tokens. The raw token value is
++/// never persisted. Revocation sets revokedAt; the verifier rejects revoked
++/// and expired rows.
++model OAuthRefreshToken {
++  id        String    @id @default(uuid()) @db.Uuid
++  tokenHash String    @unique
++  userId    String    @db.Uuid
++  clientId  String
++  scopes    String[]
++  expiresAt DateTime
++  revokedAt DateTime?
++  createdAt DateTime  @default(now())
++  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
++  client    OAuthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
++
++  @@index([userId])
 +  @@index([expiresAt])
 +}
 diff --git a/packages/database/prisma/tests/bootstrap-invariants.sql b/packages/database/prisma/tests/bootstrap-invariants.sql
@@ -8693,16 +8766,18 @@ index 0000000..9d01d7f
 +END $$;
 +ROLLBACK;
 diff --git a/packages/database/src/database/database.module.ts b/packages/database/src/database/database.module.ts
-index fbdbb69..19f4406 100644
+index fbdbb69..b23e3f0 100644
 --- a/packages/database/src/database/database.module.ts
 +++ b/packages/database/src/database/database.module.ts
-@@ -1,3 +1,5 @@
+@@ -1,3 +1,7 @@
 +import { EmailRepository } from "./repositories/email.repository";
 +import { AuthSessionRepository } from "./repositories/auth-session.repository";
++import { OAuthClientRepository } from "./repositories/oauth-client.repository";
++import { OAuthRefreshTokenRepository } from "./repositories/oauth-refresh-token.repository";
  import { ExternalCarrierRepository } from "./repositories/external-carrier.repository";
  import { InboundRouteRepository } from "./repositories/inbound-route.repository";
  import { RingGroupRepository } from "./repositories/ring-group.repository";
-@@ -105,6 +107,12 @@ import { AiVoiceAgentCallRepository } from "./repositories/ai-voice-agent-call.r
+@@ -105,6 +109,14 @@ import { AiVoiceAgentCallRepository } from "./repositories/ai-voice-agent-call.r
  import { WorkspaceCompanyProfileRepository } from "./repositories/workspace-company-profile.repository";
  
  const databaseProviders = [
@@ -8712,6 +8787,8 @@ index fbdbb69..19f4406 100644
 +    provide: "RINGEE_AUTH_SESSION_REPOSITORY",
 +    useExisting: AuthSessionRepository,
 +  },
++  OAuthClientRepository,
++  OAuthRefreshTokenRepository,
    PrismaService,
    UserRepository,
    ChatAuthRepository,
@@ -9008,16 +9085,18 @@ index 0000000..6cff89c
 +  }
 +}
 diff --git a/packages/database/src/database/repositories/index.ts b/packages/database/src/database/repositories/index.ts
-index eb61501..7fcf340 100644
+index eb61501..fb84ebd 100644
 --- a/packages/database/src/database/repositories/index.ts
 +++ b/packages/database/src/database/repositories/index.ts
-@@ -101,3 +101,6 @@ export * from "./inbound-ring-attempt.repository";
+@@ -101,3 +101,8 @@ export * from "./inbound-ring-attempt.repository";
  export * from "./personal-api-key.repository";
  export * from "./cli-auth-request.repository";
  export * from "./mcp-usage.repository";
 +
 +export * from "./email.repository";
 +export * from "./auth-session.repository";
++export * from "./oauth-client.repository";
++export * from "./oauth-refresh-token.repository";
 diff --git a/packages/database/src/database/repositories/organization.repository.ts b/packages/database/src/database/repositories/organization.repository.ts
 --- a/packages/database/src/database/repositories/organization.repository.ts
 +++ b/packages/database/src/database/repositories/organization.repository.ts
@@ -13477,7 +13556,7 @@ index f498d4c..cf33061 100644
        if (wasAccepted(result)) return true;
        const delay = this.retryDelaysMs[attempt];
 diff --git a/packages/services/src/services/index.ts b/packages/services/src/services/index.ts
-index 9dc76b6..cd6a889 100644
+index 9dc76b6..1c877f8 100644
 --- a/packages/services/src/services/index.ts
 +++ b/packages/services/src/services/index.ts
 @@ -1,4 +1,5 @@
@@ -13486,7 +13565,7 @@ index 9dc76b6..cd6a889 100644
  export * from "./services.module";
  export * from "./chat.auth.service";
  export * from "./call.service";
-@@ -59,3 +60,9 @@ export * from "./voice-agents";
+@@ -59,3 +60,10 @@ export * from "./voice-agents";
  
  export * from "./external-carrier/external-carrier.service";
  export * from "./inbound-routing";
@@ -13496,6 +13575,7 @@ index 9dc76b6..cd6a889 100644
 +export * from "./auth-identity.service";
 +export * from "./realtime-ticket.service";
 +export * from "./phone-verification.service";
++export * from "./oauth-provider.service";
 diff --git a/packages/services/src/services/number.purchased.service.ts b/packages/services/src/services/number.purchased.service.ts
 index e18da01..074e750 100644
 --- a/packages/services/src/services/number.purchased.service.ts
@@ -14430,9 +14510,10 @@ index 8a9726e..72f8cc1 100644
  
    private escapeHtml(value: string): string {
 diff --git a/packages/services/src/services/services.module.ts b/packages/services/src/services/services.module.ts
+index 5a50ace..a448e3f 100644
 --- a/packages/services/src/services/services.module.ts
 +++ b/packages/services/src/services/services.module.ts
-@@ -1,4 +1,11 @@
+@@ -1,4 +1,12 @@
 +import { EmailService } from "./email.service";
  import { ExternalCarrierService } from "./external-carrier/external-carrier.service";
 +import { EmailFeedbackService } from "./email-feedback.service";
@@ -14440,11 +14521,12 @@ diff --git a/packages/services/src/services/services.module.ts b/packages/servic
 +import { AuthIdentityService } from "./auth-identity.service";
 +import { RealtimeTicketService } from "./realtime-ticket.service";
 +import { PhoneVerificationService } from "./phone-verification.service";
++import { OAuthProviderService } from "./oauth-provider.service";
 +import { MauticFeedbackClient, SnsFeedbackVerifier } from "@ringee/platform";
  import {
    AiReceptionistDestinationHandler,
    DeskPhoneDestinationHandler,
-@@ -214,6 +221,11 @@ import {
+@@ -214,6 +222,12 @@ import {
  } from "./security";
  
  const servicesProviders = [
@@ -14453,10 +14535,11 @@ diff --git a/packages/services/src/services/services.module.ts b/packages/servic
 +  AuthIdentityService,
 +  RealtimeTicketService,
 +  PhoneVerificationService,
++  OAuthProviderService,
    UserService,
    ChatAuthService,
    CallTranscriptionService,
-@@ -448,6 +460,9 @@ const reminderChannelsProvider: Provider = {
+@@ -448,6 +462,9 @@ const reminderChannelsProvider: Provider = {
  };
  
  const allProviders: Provider[] = [
@@ -14466,7 +14549,6 @@ diff --git a/packages/services/src/services/services.module.ts b/packages/servic
    ...servicesProviders,
    reminderChannelsProvider,
    pipelineDefinitionsProvider,
-
 diff --git a/packages/services/src/services/realtime-ticket.service.ts b/packages/services/src/services/realtime-ticket.service.ts
 new file mode 100644
 index 0000000..8113714
@@ -17366,6 +17448,7 @@ index 0000000..b84820d
 +  return readAuthPrincipal(createCookieApiServer(cookieStore.toString()));
 +}
 diff --git a/apps/frontend/src/i18n/locales/en/auth.json b/apps/frontend/src/i18n/locales/en/auth.json
+index b21dae0..12909d8 100644
 --- a/apps/frontend/src/i18n/locales/en/auth.json
 +++ b/apps/frontend/src/i18n/locales/en/auth.json
 @@ -35,7 +35,7 @@
@@ -17389,7 +17472,7 @@ diff --git a/apps/frontend/src/i18n/locales/en/auth.json b/apps/frontend/src/i18
    },
    "cliAuthorize": {
      "metaTitle": "Authorize Ringee CLI",
-@@ -125,5 +128,10 @@
+@@ -125,5 +128,23 @@
      "loadError": "We couldn't load this login request. Refresh to try again.",
      "actionError": "Something went wrong. Try again.",
      "tryAnotherCode": "Enter a different code"
@@ -17398,10 +17481,23 @@ diff --git a/apps/frontend/src/i18n/locales/en/auth.json b/apps/frontend/src/i18
 +    "title": "Accounts are provisioned by your administrator",
 +    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
 +    "signInLink": "Back to sign in"
++  },
++  "oauthConsent": {
++    "title": "Authorize {clientName}",
++    "description": "{clientName} is requesting access to your Ringee account with these permissions:",
++    "revocable": "You can revoke access at any time. The application will never see your password.",
++    "authorize": "Authorize",
++    "deny": "Deny",
++    "loading": "Loading…",
++    "missingRequest": "Missing authorization request.",
++    "expiredRequest": "This authorization request has expired.",
++    "loadError": "Could not load the authorization request.",
++    "noRedirect": "The authorization server did not return a redirect.",
++    "decisionError": "Could not complete the authorization."
    }
  }
-
 diff --git a/apps/frontend/src/i18n/locales/es/auth.json b/apps/frontend/src/i18n/locales/es/auth.json
+index 41b059f..608d910 100644
 --- a/apps/frontend/src/i18n/locales/es/auth.json
 +++ b/apps/frontend/src/i18n/locales/es/auth.json
 @@ -73,7 +73,10 @@
@@ -17416,7 +17512,7 @@ diff --git a/apps/frontend/src/i18n/locales/es/auth.json b/apps/frontend/src/i18
    },
    "cliAuthorize": {
      "metaTitle": "Autorizar la CLI de Ringee",
-@@ -125,5 +128,10 @@
+@@ -125,5 +128,23 @@
      "loadError": "No pudimos cargar esta solicitud de inicio de sesión. Recarga la página para intentarlo de nuevo.",
      "actionError": "Algo salió mal. Inténtalo de nuevo.",
      "tryAnotherCode": "Introducir otro código"
@@ -17425,9 +17521,21 @@ diff --git a/apps/frontend/src/i18n/locales/es/auth.json b/apps/frontend/src/i18
 +    "title": "Accounts are provisioned by your administrator",
 +    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
 +    "signInLink": "Back to sign in"
++  },
++  "oauthConsent": {
++    "title": "Authorize {clientName}",
++    "description": "{clientName} is requesting access to your Ringee account with these permissions:",
++    "revocable": "You can revoke access at any time. The application will never see your password.",
++    "authorize": "Authorize",
++    "deny": "Deny",
++    "loading": "Loading…",
++    "missingRequest": "Missing authorization request.",
++    "expiredRequest": "This authorization request has expired.",
++    "loadError": "Could not load the authorization request.",
++    "noRedirect": "The authorization server did not return a redirect.",
++    "decisionError": "Could not complete the authorization."
    }
  }
-
 diff --git a/packages/frontend-shared/src/auth/__tests__/auth-client.test.ts b/packages/frontend-shared/src/auth/__tests__/auth-client.test.ts
 new file mode 100644
 index 0000000..3562825
@@ -20908,9 +21016,10 @@ diff --git a/apps/frontend/src/features/security/components/concurrent-call-dial
    const message = useConcurrentCallStore((s) => s.message);
 
 diff --git a/apps/frontend/src/i18n/locales/de/auth.json b/apps/frontend/src/i18n/locales/de/auth.json
+index 07ac9c8..043b80e 100644
 --- a/apps/frontend/src/i18n/locales/de/auth.json
 +++ b/apps/frontend/src/i18n/locales/de/auth.json
-@@ -125,5 +125,10 @@
+@@ -125,5 +125,23 @@
      "loadError": "Diese Anmeldeanfrage konnte nicht geladen werden. Laden Sie die Seite neu, um es erneut zu versuchen.",
      "actionError": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
      "tryAnotherCode": "Anderen Code eingeben"
@@ -20919,9 +21028,21 @@ diff --git a/apps/frontend/src/i18n/locales/de/auth.json b/apps/frontend/src/i18
 +    "title": "Accounts are provisioned by your administrator",
 +    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
 +    "signInLink": "Back to sign in"
++  },
++  "oauthConsent": {
++    "title": "Authorize {clientName}",
++    "description": "{clientName} is requesting access to your Ringee account with these permissions:",
++    "revocable": "You can revoke access at any time. The application will never see your password.",
++    "authorize": "Authorize",
++    "deny": "Deny",
++    "loading": "Loading…",
++    "missingRequest": "Missing authorization request.",
++    "expiredRequest": "This authorization request has expired.",
++    "loadError": "Could not load the authorization request.",
++    "noRedirect": "The authorization server did not return a redirect.",
++    "decisionError": "Could not complete the authorization."
    }
  }
-
 diff --git a/apps/frontend/src/i18n/locales/de/calls.json b/apps/frontend/src/i18n/locales/de/calls.json
 --- a/apps/frontend/src/i18n/locales/de/calls.json
 +++ b/apps/frontend/src/i18n/locales/de/calls.json
@@ -20993,9 +21114,10 @@ diff --git a/apps/frontend/src/i18n/locales/en/organizations.json b/apps/fronten
  }
 
 diff --git a/apps/frontend/src/i18n/locales/es-MX/auth.json b/apps/frontend/src/i18n/locales/es-MX/auth.json
+index 737ce74..a492523 100644
 --- a/apps/frontend/src/i18n/locales/es-MX/auth.json
 +++ b/apps/frontend/src/i18n/locales/es-MX/auth.json
-@@ -1,5 +1,10 @@
+@@ -1,5 +1,23 @@
  {
    "fields": {
      "namePlaceholder": "Juan Pérez"
@@ -21004,9 +21126,21 @@ diff --git a/apps/frontend/src/i18n/locales/es-MX/auth.json b/apps/frontend/src/
 +    "title": "Accounts are provisioned by your administrator",
 +    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
 +    "signInLink": "Back to sign in"
++  },
++  "oauthConsent": {
++    "title": "Authorize {clientName}",
++    "description": "{clientName} is requesting access to your Ringee account with these permissions:",
++    "revocable": "You can revoke access at any time. The application will never see your password.",
++    "authorize": "Authorize",
++    "deny": "Deny",
++    "loading": "Loading…",
++    "missingRequest": "Missing authorization request.",
++    "expiredRequest": "This authorization request has expired.",
++    "loadError": "Could not load the authorization request.",
++    "noRedirect": "The authorization server did not return a redirect.",
++    "decisionError": "Could not complete the authorization."
    }
  }
-
 diff --git a/apps/frontend/src/i18n/locales/es/calls.json b/apps/frontend/src/i18n/locales/es/calls.json
 --- a/apps/frontend/src/i18n/locales/es/calls.json
 +++ b/apps/frontend/src/i18n/locales/es/calls.json
@@ -21043,9 +21177,10 @@ diff --git a/apps/frontend/src/i18n/locales/es/organizations.json b/apps/fronten
  }
 
 diff --git a/apps/frontend/src/i18n/locales/fr-BE/auth.json b/apps/frontend/src/i18n/locales/fr-BE/auth.json
+index baaaac4..3b20e51 100644
 --- a/apps/frontend/src/i18n/locales/fr-BE/auth.json
 +++ b/apps/frontend/src/i18n/locales/fr-BE/auth.json
-@@ -1,5 +1,10 @@
+@@ -1,5 +1,23 @@
  {
    "fields": {
      "namePlaceholder": "Sophie Lambert"
@@ -21054,13 +21189,26 @@ diff --git a/apps/frontend/src/i18n/locales/fr-BE/auth.json b/apps/frontend/src/
 +    "title": "Accounts are provisioned by your administrator",
 +    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
 +    "signInLink": "Back to sign in"
++  },
++  "oauthConsent": {
++    "title": "Authorize {clientName}",
++    "description": "{clientName} is requesting access to your Ringee account with these permissions:",
++    "revocable": "You can revoke access at any time. The application will never see your password.",
++    "authorize": "Authorize",
++    "deny": "Deny",
++    "loading": "Loading…",
++    "missingRequest": "Missing authorization request.",
++    "expiredRequest": "This authorization request has expired.",
++    "loadError": "Could not load the authorization request.",
++    "noRedirect": "The authorization server did not return a redirect.",
++    "decisionError": "Could not complete the authorization."
    }
  }
-
 diff --git a/apps/frontend/src/i18n/locales/fr/auth.json b/apps/frontend/src/i18n/locales/fr/auth.json
+index 6e2257b..12da8cd 100644
 --- a/apps/frontend/src/i18n/locales/fr/auth.json
 +++ b/apps/frontend/src/i18n/locales/fr/auth.json
-@@ -125,5 +125,10 @@
+@@ -125,5 +125,23 @@
      "loadError": "Impossible de charger cette demande de connexion. Actualisez la page pour réessayer.",
      "actionError": "Une erreur s'est produite. Réessayez.",
      "tryAnotherCode": "Saisir un autre code"
@@ -21069,9 +21217,21 @@ diff --git a/apps/frontend/src/i18n/locales/fr/auth.json b/apps/frontend/src/i18
 +    "title": "Accounts are provisioned by your administrator",
 +    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
 +    "signInLink": "Back to sign in"
++  },
++  "oauthConsent": {
++    "title": "Authorize {clientName}",
++    "description": "{clientName} is requesting access to your Ringee account with these permissions:",
++    "revocable": "You can revoke access at any time. The application will never see your password.",
++    "authorize": "Authorize",
++    "deny": "Deny",
++    "loading": "Loading…",
++    "missingRequest": "Missing authorization request.",
++    "expiredRequest": "This authorization request has expired.",
++    "loadError": "Could not load the authorization request.",
++    "noRedirect": "The authorization server did not return a redirect.",
++    "decisionError": "Could not complete the authorization."
    }
  }
-
 diff --git a/apps/frontend/src/i18n/locales/fr/calls.json b/apps/frontend/src/i18n/locales/fr/calls.json
 --- a/apps/frontend/src/i18n/locales/fr/calls.json
 +++ b/apps/frontend/src/i18n/locales/fr/calls.json
@@ -21108,9 +21268,10 @@ diff --git a/apps/frontend/src/i18n/locales/fr/organizations.json b/apps/fronten
  }
 
 diff --git a/apps/frontend/src/i18n/locales/it/auth.json b/apps/frontend/src/i18n/locales/it/auth.json
+index 1542958..8ed3180 100644
 --- a/apps/frontend/src/i18n/locales/it/auth.json
 +++ b/apps/frontend/src/i18n/locales/it/auth.json
-@@ -125,5 +125,10 @@
+@@ -125,5 +125,23 @@
      "loadError": "Impossibile caricare questa richiesta di accesso. Ricarica la pagina per riprovare.",
      "actionError": "Qualcosa è andato storto. Riprova.",
      "tryAnotherCode": "Inserisci un altro codice"
@@ -21119,9 +21280,21 @@ diff --git a/apps/frontend/src/i18n/locales/it/auth.json b/apps/frontend/src/i18
 +    "title": "Accounts are provisioned by your administrator",
 +    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
 +    "signInLink": "Back to sign in"
++  },
++  "oauthConsent": {
++    "title": "Authorize {clientName}",
++    "description": "{clientName} is requesting access to your Ringee account with these permissions:",
++    "revocable": "You can revoke access at any time. The application will never see your password.",
++    "authorize": "Authorize",
++    "deny": "Deny",
++    "loading": "Loading…",
++    "missingRequest": "Missing authorization request.",
++    "expiredRequest": "This authorization request has expired.",
++    "loadError": "Could not load the authorization request.",
++    "noRedirect": "The authorization server did not return a redirect.",
++    "decisionError": "Could not complete the authorization."
    }
  }
-
 diff --git a/apps/frontend/src/i18n/locales/it/calls.json b/apps/frontend/src/i18n/locales/it/calls.json
 --- a/apps/frontend/src/i18n/locales/it/calls.json
 +++ b/apps/frontend/src/i18n/locales/it/calls.json
@@ -21158,9 +21331,10 @@ diff --git a/apps/frontend/src/i18n/locales/it/organizations.json b/apps/fronten
  }
 
 diff --git a/apps/frontend/src/i18n/locales/nl/auth.json b/apps/frontend/src/i18n/locales/nl/auth.json
+index 5cf3944..5864f1c 100644
 --- a/apps/frontend/src/i18n/locales/nl/auth.json
 +++ b/apps/frontend/src/i18n/locales/nl/auth.json
-@@ -125,5 +125,10 @@
+@@ -125,5 +125,23 @@
      "loadError": "We konden dit inlogverzoek niet laden. Vernieuw de pagina om het opnieuw te proberen.",
      "actionError": "Er ging iets mis. Probeer het opnieuw.",
      "tryAnotherCode": "Een andere code invoeren"
@@ -21169,9 +21343,21 @@ diff --git a/apps/frontend/src/i18n/locales/nl/auth.json b/apps/frontend/src/i18
 +    "title": "Accounts are provisioned by your administrator",
 +    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
 +    "signInLink": "Back to sign in"
++  },
++  "oauthConsent": {
++    "title": "Authorize {clientName}",
++    "description": "{clientName} is requesting access to your Ringee account with these permissions:",
++    "revocable": "You can revoke access at any time. The application will never see your password.",
++    "authorize": "Authorize",
++    "deny": "Deny",
++    "loading": "Loading…",
++    "missingRequest": "Missing authorization request.",
++    "expiredRequest": "This authorization request has expired.",
++    "loadError": "Could not load the authorization request.",
++    "noRedirect": "The authorization server did not return a redirect.",
++    "decisionError": "Could not complete the authorization."
    }
  }
-
 diff --git a/apps/frontend/src/i18n/locales/nl/calls.json b/apps/frontend/src/i18n/locales/nl/calls.json
 --- a/apps/frontend/src/i18n/locales/nl/calls.json
 +++ b/apps/frontend/src/i18n/locales/nl/calls.json
@@ -21208,9 +21394,10 @@ diff --git a/apps/frontend/src/i18n/locales/nl/organizations.json b/apps/fronten
  }
 
 diff --git a/apps/frontend/src/i18n/locales/pt/auth.json b/apps/frontend/src/i18n/locales/pt/auth.json
+index d6fd8d2..c98e4a3 100644
 --- a/apps/frontend/src/i18n/locales/pt/auth.json
 +++ b/apps/frontend/src/i18n/locales/pt/auth.json
-@@ -125,5 +125,10 @@
+@@ -125,5 +125,23 @@
      "loadError": "Não foi possível carregar este pedido de início de sessão. Atualize a página para tentar novamente.",
      "actionError": "Algo correu mal. Tente novamente.",
      "tryAnotherCode": "Introduzir outro código"
@@ -21219,9 +21406,21 @@ diff --git a/apps/frontend/src/i18n/locales/pt/auth.json b/apps/frontend/src/i18
 +    "title": "Accounts are provisioned by your administrator",
 +    "description": "Ringee is a closed platform. Ask your workspace administrator to create your account — you'll sign in with the email and temporary password they provide.",
 +    "signInLink": "Back to sign in"
++  },
++  "oauthConsent": {
++    "title": "Authorize {clientName}",
++    "description": "{clientName} is requesting access to your Ringee account with these permissions:",
++    "revocable": "You can revoke access at any time. The application will never see your password.",
++    "authorize": "Authorize",
++    "deny": "Deny",
++    "loading": "Loading…",
++    "missingRequest": "Missing authorization request.",
++    "expiredRequest": "This authorization request has expired.",
++    "loadError": "Could not load the authorization request.",
++    "noRedirect": "The authorization server did not return a redirect.",
++    "decisionError": "Could not complete the authorization."
    }
  }
-
 diff --git a/apps/frontend/src/i18n/locales/pt/calls.json b/apps/frontend/src/i18n/locales/pt/calls.json
 --- a/apps/frontend/src/i18n/locales/pt/calls.json
 +++ b/apps/frontend/src/i18n/locales/pt/calls.json
@@ -21937,3 +22136,2145 @@ diff --git a/packages/frontend-shared/src/hooks/use.analytics.ts b/packages/fron
  
    useEffect(() => {
      if (topLevel && typeof window !== "undefined") {
+diff --git a/apps/backend/src/api/routes/mcp.chatgpt.controller.ts b/apps/backend/src/api/routes/mcp.chatgpt.controller.ts
+index e3407a7..780256f 100644
+--- a/apps/backend/src/api/routes/mcp.chatgpt.controller.ts
++++ b/apps/backend/src/api/routes/mcp.chatgpt.controller.ts
+@@ -10,8 +10,11 @@ import {
+ } from "@nestjs/common";
+ import { Public, OwnershipContext } from "@ringee/platform";
+ import { apiConfiguration } from "@ringee/configuration";
+-import { OrganizationService, UserService } from "@ringee/services";
+-import { getAuth } from "@clerk/express";
++import {
++  OAuthProviderService,
++  OrganizationService,
++  UserService,
++} from "@ringee/services";
+ import type { Request, Response } from "express";
+ import { McpService } from "../../mcp/mcp.service";
+ 
+@@ -25,16 +28,19 @@ const SCOPES = (process.env.MCP_OAUTH_SCOPES || "ringee:use")
+  *
+  * Unlike the public `McpController` — which trusts the user/organization UUIDs
+  * embedded in the URL — this controller has NO ids in the path. It resolves the
+- * caller from a verified Clerk bearer token, so each end user only ever reaches
+- * their own Ringee data. The connector points at a single stable URL:
++ * caller from a verified OAuth access token issued by Ringee's own
++ * authorization server, so each end user only ever reaches their own Ringee
++ * data. The connector points at a single stable URL:
+  *
+  *   GET  /api/mcp/chatgpt/sse        (open the stream)
+  *   POST /api/mcp/chatgpt/messages   (JSON-RPC messages)
+  *
+- * Routes are `@Public()` so the global ClerkAuthGuard is bypassed and we can
++ * Routes are `@Public()` so the global AuthGuard is bypassed and we can
+  * emit a proper `401 + WWW-Authenticate` OAuth challenge (which the global
+  * guard does not), letting ChatGPT discover the auth server and sign the user
+- * in. The token itself is still verified here via Clerk's `getAuth`.
++ * in. The token itself is verified here: signature, issuer, audience,
++ * expiry, scopes and revocation, then the Ringee UUID and current workspace
++ * membership are resolved. Blocked users are rejected explicitly.
+  */
+ @Controller("/mcp/chatgpt")
+ export class McpChatgptController {
+@@ -42,6 +48,7 @@ export class McpChatgptController {
+     private readonly mcpService: McpService,
+     private readonly userService: UserService,
+     private readonly organizationService: OrganizationService,
++    private readonly oauth: OAuthProviderService,
+   ) {}
+ 
+   // ── OAuth discovery (RFC 9728 protected-resource metadata) ────────────
+@@ -97,52 +104,34 @@ export class McpChatgptController {
+   // ── Auth resolution ───────────────────────────────────────────────────
+ 
+   /**
+-   * Resolve the Ringee ownership context from the request's Clerk bearer
+-   * token. Returns null when the caller is unauthenticated or has no matching
+-   * Ringee account (the handler then emits the OAuth challenge).
++   * Resolve the Ringee ownership context from the request's OAuth bearer
++   * token. Returns null when the caller is unauthenticated, the token is
++   * invalid/revoked/expired, the user has no matching Ringee account, or the
++   * user is blocked (the handler then emits the OAuth challenge).
+    */
+   private async resolveContext(req: Request): Promise<OwnershipContext | null> {
+-    // ChatGPT authenticates with a Clerk OAuth access token; first-party
+-    // callers (e.g. the dashboard) use a session token. getAuth() defaults to
+-    // accepting session tokens ONLY, so an OAuth token would always come back
+-    // unauthenticated and 401 the connector. Accept both token types here.
+-    const auth = getAuth(req, {
+-      acceptsToken: ["session_token", "oauth_token"],
+-    });
+-
+-    if (!auth.isAuthenticated) {
+-      return null;
+-    }
++    const header = req.headers.authorization ?? "";
++    const match = /^Bearer (.+)$/.exec(header);
++    if (!match) return null;
++
++    // Verify signature, issuer, audience (this protected resource), expiry,
++    // scopes and revocation. Blocked users are rejected inside.
++    const verified = await this.oauth.verifyAccessToken(
++      match[1].slice(0, 2048),
++      this.resourceUrl(),
++      SCOPES,
++    );
++    if (!verified) return null;
+ 
+-    // After the guard the object is a SignedIn session OR an authenticated
+-    // OAuth machine object — both expose `userId` (the Clerk user id).
+-    const user = await this.userService.getCachedByClerkId(auth.userId);
+-    if (!user) {
+-      return null;
+-    }
++    const user = await this.userService.getUserById(verified.userId);
++    if (!user) return null;
+ 
+-    // Only session tokens carry an active organization (the user explicitly
+-    // switched org in their Clerk session). OAuth tokens — what ChatGPT sends —
+-    // never do, so they'd be pinned to the personal scope forever.
+-    const orgId = "orgId" in auth ? auth.orgId : null;
+-
+-    let organizationId: string | null = null;
+-    if (orgId) {
+-      const org = await this.organizationService.getByClerkId(orgId);
+-      if (!org) {
+-        // Token carries an org we don't know — refuse rather than silently
+-        // falling back to the personal scope.
+-        return null;
+-      }
+-      organizationId = org.id;
+-    } else {
+-      // No org in the token. Honor the workspace the user picked via
+-      // switch_workspace so OAuth callers can operate inside an organization
+-      // and switch back to personal at will. Membership is re-validated there.
+-      organizationId = await this.organizationService.getActiveWorkspaceOrgId(
+-        user.id,
+-      );
+-    }
++    // OAuth tokens never carry an organization. Honor the workspace the user
++    // picked via switch_workspace so the connector can operate inside an
++    // organization and switch back to personal at will. Membership is
++    // re-validated there.
++    const organizationId =
++      await this.organizationService.getActiveWorkspaceOrgId(user.id);
+ 
+     return { userId: user.id, organizationId };
+   }
+@@ -164,10 +153,16 @@ export class McpChatgptController {
+   }
+ 
+   private authorizationServers(): string[] {
+-    return (process.env.MCP_OAUTH_AUTHORIZATION_SERVERS || "")
++    // Ringee is its own authorization server now. The legacy
++    // MCP_OAUTH_AUTHORIZATION_SERVERS override is honored if set, for
++    // staged migrations.
++    const override = (process.env.MCP_OAUTH_AUTHORIZATION_SERVERS || "")
+       .split(/[ ,]+/)
+       .map((s) => s.replace(/\/+$/, ""))
+       .filter(Boolean);
++    if (override.length > 0) return override;
++    const base = (apiConfiguration.BACKEND_URL || "").replace(/\/+$/, "");
++    return [`${base}/api/oauth`];
+   }
+ 
+   private wwwAuthenticate(): string {
+diff --git a/apps/backend/src/api/sdk/sdk-auth.controller.ts b/apps/backend/src/api/sdk/sdk-auth.controller.ts
+index 4e05394..a6d9340 100644
+--- a/apps/backend/src/api/sdk/sdk-auth.controller.ts
++++ b/apps/backend/src/api/sdk/sdk-auth.controller.ts
+@@ -24,7 +24,7 @@ interface ResendBody {
+  * agent's email. Responses are enumeration-safe: they never reveal whether an
+  * email maps to an authorized agent.
+  *
+- * `@Public()` bypasses the global Clerk guard — these endpoints are for
++ * `@Public()` bypasses the global auth guard — these endpoints are for
+  * unauthenticated CRM browsers, secured by the pk/origin/OTP chain instead.
+  */
+ @Public()
+diff --git a/apps/backend/src/api/sdk/sdk-call.controller.ts b/apps/backend/src/api/sdk/sdk-call.controller.ts
+index ce0d47e..1f54d9a 100644
+--- a/apps/backend/src/api/sdk/sdk-call.controller.ts
++++ b/apps/backend/src/api/sdk/sdk-call.controller.ts
+@@ -17,7 +17,7 @@ interface AuthorizeBody {
+  * leg: it runs DNC / credit / caller-ID / contact resolution (reusing the exact
+  * services the web dialer uses), pre-creates the `Call` (`source = "sdk"`), and
+  * returns a signed correlation token the browser echoes so the Telnyx webhook
+- * can adopt the row. `@Public()` bypasses Clerk; the `SdkSessionGuard` proves
++ * can adopt the row. `@Public()` bypasses the global guard; the `SdkSessionGuard` proves
+  * the agent instead.
+  */
+ @Public()
+diff --git a/apps/backend/src/api/sdk/sdk-session.guard.ts b/apps/backend/src/api/sdk/sdk-session.guard.ts
+index f76736d..96d9b3b 100644
+--- a/apps/backend/src/api/sdk/sdk-session.guard.ts
++++ b/apps/backend/src/api/sdk/sdk-session.guard.ts
+@@ -6,7 +6,7 @@ import { SdkSessionService } from "@ringee/services";
+  * session and `Origin`, re-validates the agent live (integration active, user
+  * not blocked, still a member, `canCall`), and attaches the result to
+  * `req.sdkAgent`. Controllers using this guard must also be `@Public()` so the
+- * global Clerk guard steps aside.
++ * global auth guard steps aside.
+  */
+ @Injectable()
+ export class SdkSessionGuard implements CanActivate {
+diff --git a/apps/browser-extension/manifest.config.ts b/apps/browser-extension/manifest.config.ts
+index 8142bec..f2bd14b 100644
+--- a/apps/browser-extension/manifest.config.ts
++++ b/apps/browser-extension/manifest.config.ts
+@@ -129,9 +129,9 @@ export default defineManifest((env) => {
+     permissions: [
+       "offscreen", // host the WebRTC engine (never the service worker)
+       "sidePanel", // mount the shared Active Call Modal
+-      "storage", // settings + cached snapshot
++      "storage", // settings + cached snapshot + OAuth tokens
+       "contextMenus", // right-click "Call with Ringee" on selected text
+-      "cookies", // read the Ringee web-app session (Clerk Sync Host)
++      "identity", // OAuth authorization-code flow (launchWebAuthFlow)
+     ],
+ 
+     // Includes the configured sync host + API origin (localhost in dev) so the
+diff --git a/apps/browser-extension/src/background/service-worker.ts b/apps/browser-extension/src/background/service-worker.ts
+index d504adc..0324f23 100644
+--- a/apps/browser-extension/src/background/service-worker.ts
++++ b/apps/browser-extension/src/background/service-worker.ts
+@@ -11,7 +11,6 @@
+  *   permissions, credits, DNC, caller ID, contact) → ensure offscreen →
+  *   START_CALL → relay call events back to the side panel.
+  */
+-import { createClerkClient } from "@clerk/chrome-extension/background";
+ import {
+   MessageType,
+   isCallCommand,
+@@ -22,6 +21,7 @@ import {
+ } from "@ringee/dialer-core/contracts";
+ import { resolveDialNumber } from "@ringee/dialer-core/phone";
+ import { ApiError, RingeeApi } from "../lib/ringee-api";
++import { getAccessToken } from "../lib/oauth";
+ import {
+   ERROR_COPY,
+   buildStartCall,
+@@ -32,35 +32,11 @@ import {
+ import { DEFAULT_REGION } from "../lib/region";
+ import { getSelectedCallerId } from "../lib/selected-caller-id";
+ 
+-const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+-const SYNC_HOST =
+-  import.meta.env.VITE_CLERK_SYNC_HOST ?? "https://www.ringee.io";
+-
+ // ── Auth ──────────────────────────────────────────────────────────────────────
+-async function clerk() {
+-  return createClerkClient({
+-    publishableKey: PUBLISHABLE_KEY,
+-    syncHost: SYNC_HOST,
+-  });
+-}
+-async function getToken(opts?: {
+-  forceRefresh?: boolean;
+-}): Promise<string | null> {
+-  const c = await clerk();
+-  if (!c.session) return null;
+-  // Skip Clerk's in-memory cache when we're retrying a 401 — the cached
+-  // short-lived JWT has usually just expired.
+-  return c.session.getToken(
+-    opts?.forceRefresh ? { skipCache: true } : undefined,
+-  );
+-}
+-async function getIdentity(): Promise<{
+-  userId: string;
+-  orgId?: string;
+-} | null> {
+-  const c = await clerk();
+-  if (!c.user) return null;
+-  return { userId: c.user.id, orgId: c.organization?.id };
++// OAuth access tokens from Ringee's own authorization server (see
++// ../lib/oauth.ts). The extension never sees passwords or session cookies.
++async function getToken(): Promise<string | null> {
++  return getAccessToken();
+ }
+ const api = new RingeeApi(getToken);
+ 
+@@ -115,8 +91,8 @@ async function dial(target: DialTarget, tabId?: number) {
+   });
+   if (tabId !== undefined) chrome.sidePanel.open({ tabId }).catch(() => {});
+ 
+-  const identity = await getIdentity();
+-  if (!identity) {
++  const token = await getAccessToken();
++  if (!token) {
+     setSnapshot({ state: "failed", error: ERROR_COPY.UNAUTHENTICATED });
+     return;
+   }
+diff --git a/apps/browser-extension/src/sidepanel/call-experience.tsx b/apps/browser-extension/src/sidepanel/call-experience.tsx
+index da1beb4..26f912b 100644
+--- a/apps/browser-extension/src/sidepanel/call-experience.tsx
++++ b/apps/browser-extension/src/sidepanel/call-experience.tsx
+@@ -1,5 +1,5 @@
+ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+-import { useAuth } from "@clerk/chrome-extension";
++import { useExtensionAuth } from "./use-extension-auth";
+ import {
+   ActiveCallModal,
+   DialerProvider,
+@@ -38,7 +38,7 @@ const EMPTY_SNAPSHOT: CallSnapshotMsg = {
+ };
+ 
+ export function CallExperience() {
+-  const { getToken } = useAuth();
++  const { getToken } = useExtensionAuth();
+   const [snap, setSnap] = useState<CallSnapshotMsg>(EMPTY_SNAPSHOT);
+   const [muted, setMuted] = useState(false);
+   const [onHold, setOnHold] = useState(false);
+diff --git a/apps/browser-extension/src/sidepanel/sidepanel.tsx b/apps/browser-extension/src/sidepanel/sidepanel.tsx
+index 84b440d..ba09d4e 100644
+--- a/apps/browser-extension/src/sidepanel/sidepanel.tsx
++++ b/apps/browser-extension/src/sidepanel/sidepanel.tsx
+@@ -1,13 +1,9 @@
+ import { createRoot } from "react-dom/client";
+-import { ClerkProvider, SignedIn, SignedOut } from "@clerk/chrome-extension";
+ import { CallExperience } from "./call-experience";
+ import { SignInScreen } from "./sign-in-screen";
++import { useExtensionAuth } from "./use-extension-auth";
+ import "./theme.css";
+ 
+-const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+-const SYNC_HOST =
+-  import.meta.env.VITE_CLERK_SYNC_HOST ?? "https://www.ringee.io";
+-
+ // Follow the OS light/dark preference so the panel matches the Ringee app's
+ // theme (the shared tokens + logo swap on the `.dark` class).
+ const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+@@ -16,20 +12,10 @@ const applyTheme = (dark: boolean) =>
+ applyTheme(darkQuery.matches);
+ darkQuery.addEventListener("change", (e) => applyTheme(e.matches));
+ 
+-createRoot(document.getElementById("root")!).render(
+-  <ClerkProvider
+-    publishableKey={PUBLISHABLE_KEY}
+-    syncHost={SYNC_HOST}
+-    afterSignOutUrl="/"
+-  >
+-    {/* Signed in → the shared call experience. */}
+-    <SignedIn>
+-      <CallExperience />
+-    </SignedIn>
+-    {/* Signed out → send the user to the Ringee web app to sign in; the session
+-        then syncs back via Sync Host (required for Clerk dev instances). */}
+-    <SignedOut>
+-      <SignInScreen />
+-    </SignedOut>
+-  </ClerkProvider>,
+-);
++function SidepanelRoot() {
++  const { isLoaded, isSignedIn } = useExtensionAuth();
++  if (!isLoaded) return null;
++  return isSignedIn ? <CallExperience /> : <SignInScreen />;
++}
++
++createRoot(document.getElementById("root")!).render(<SidepanelRoot />);
+diff --git a/apps/browser-extension/src/sidepanel/sign-in-screen.tsx b/apps/browser-extension/src/sidepanel/sign-in-screen.tsx
+index 72a4e61..57154f7 100644
+--- a/apps/browser-extension/src/sidepanel/sign-in-screen.tsx
++++ b/apps/browser-extension/src/sidepanel/sign-in-screen.tsx
+@@ -1,20 +1,29 @@
++import { useState } from "react";
+ import { ExternalLink, RefreshCw } from "lucide-react";
+ import { RingeeLogo } from "./ringee-logo";
+-
+-const SYNC_HOST =
+-  import.meta.env.VITE_CLERK_SYNC_HOST ?? "https://www.ringee.io";
++import { useExtensionAuth } from "./use-extension-auth";
+ 
+ /**
+- * Signed-out state. The extension shares the Ringee web-app session via Clerk's
+- * Sync Host — it does NOT run its own sign-in (Clerk development instances don't
+- * support in-extension auth, hence the "Unable to authenticate this browser"
+- * error). So we send the user to the Ringee app to sign in; once they do, the
+- * session syncs back here.
++ * Signed-out state. The extension signs in through Ringee's own OAuth
++ * authorization server (authorization code + PKCE) — it never sees the
++ * user's password or session cookies, only OAuth tokens stored in the
++ * extension's own storage.
+  */
+ export function SignInScreen() {
+-  const openRingee = () => {
+-    // No `tabs` permission needed just to open a tab.
+-    chrome.tabs.create({ url: "https://www.ringee.io" });
++  const { signIn } = useExtensionAuth();
++  const [busy, setBusy] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++
++  const handleSignIn = async () => {
++    setBusy(true);
++    setError(null);
++    try {
++      await signIn();
++    } catch (e) {
++      setError(e instanceof Error ? e.message : "Sign-in failed");
++    } finally {
++      setBusy(false);
++    }
+   };
+ 
+   return (
+@@ -27,31 +36,30 @@ export function SignInScreen() {
+         </h1>
+         <p className="text-muted-foreground mx-auto max-w-[260px] text-sm">
+           Open source and pay-as-you-go from $0.012/min — no per-seat tax. Sign
+-          in to Ringee in your browser, then come back here.
++          in with your Ringee account to continue.
+         </p>
+       </div>
+ 
+       <div className="flex w-full max-w-[260px] flex-col gap-2">
+         <button
+-          onClick={openRingee}
+-          className="flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-500 text-sm font-semibold text-white transition hover:bg-emerald-600"
+-        >
+-          Open Ringee to sign in
+-          <ExternalLink className="h-4 w-4" />
+-        </button>
+-        <button
+-          onClick={() => window.location.reload()}
+-          className="text-muted-foreground hover:text-foreground flex h-10 items-center justify-center gap-2 rounded-lg text-sm transition"
++          onClick={handleSignIn}
++          disabled={busy}
++          className="flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-500 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-60"
+         >
+-          <RefreshCw className="h-3.5 w-3.5" />
+-          I&apos;ve signed in — refresh
++          {busy ? (
++            <>
++              <RefreshCw className="h-4 w-4 animate-spin" />
++              Signing in…
++            </>
++          ) : (
++            <>
++              Sign in with Ringee
++              <ExternalLink className="h-4 w-4" />
++            </>
++          )}
+         </button>
++        {error && <p className="text-sm text-red-500">{error}</p>}
+       </div>
+-
+-      <p className="text-muted-foreground/70 max-w-[240px] text-[11px]">
+-        Signed in at{" "}
+-        <span className="font-medium">{new URL(SYNC_HOST).host}</span>
+-      </p>
+     </div>
+   );
+ }
+diff --git a/apps/backend/src/api/routes/oauth.controller.ts b/apps/backend/src/api/routes/oauth.controller.ts
+new file mode 100644
+index 0000000..7b06a17
+--- /dev/null
++++ b/apps/backend/src/api/routes/oauth.controller.ts
+@@ -0,0 +1,301 @@
++import {
++  Body,
++  Controller,
++  Get,
++  HttpCode,
++  HttpException,
++  HttpStatus,
++  Post,
++  Query,
++  Res,
++} from "@nestjs/common";
++import { createHash, randomBytes } from "node:crypto";
++import type { Response } from "express";
++import {
++  CurrentUser,
++  Public,
++  type RingeeAuthPrincipal,
++} from "@ringee/platform";
++import { apiConfiguration } from "@ringee/configuration";
++import { OAuthProviderService } from "@ringee/services";
++import { RedisService } from "@ringee/platform";
++
++/** Pending authorization requests live 10 minutes. */
++const OAUTH_REQUEST_TTL_MS = 10 * 60 * 1_000;
++const OAUTH_REQUEST_KEY_PREFIX = "ringee:oauth:request:v1";
++
++const FRONTEND_URL = (apiConfiguration.FRONTEND_URL || "").replace(/\/+$/, "");
++
++interface PendingRequest {
++  userId: string;
++  clientId: string;
++  clientName: string;
++  redirectUri: string;
++  codeChallenge: string;
++  scopes: string[];
++  state: string;
++}
++
++/**
++ * OAuth 2.0 authorization server endpoints (first-party consumers only:
++ * browser extension, ChatGPT connector).
++ *
++ * - GET /api/oauth/authorize — behind the global AuthGuard (browser
++ *   session). Validates client/redirect/PKCE/scope, stashes the request,
++ *   and redirects to the frontend consent page.
++ * - POST /api/oauth/authorize/decision — the consent page posts approve/deny.
++ *   On approval issues the authorization code and redirects to the client's
++ *   exact registered redirect URI.
++ * - POST /api/oauth/token — public; the proof is the PKCE verifier (public
++ *   clients) or the refresh token. Supports authorization_code and
++ *   refresh_token grants.
++ * - POST /api/oauth/revoke — public; RFC 7009 revocation. Unknown tokens
++ *   still succeed so revocation cannot be probed.
++ * - GET /api/oauth/.well-known/oauth-authorization-server — public discovery.
++ *
++ * There is no dynamic client registration and no implicit grant.
++ */
++@Controller("oauth")
++export class OAuthController {
++  constructor(
++    private readonly oauth: OAuthProviderService,
++    private readonly redis: RedisService,
++  ) {}
++
++  // ── Authorization ───────────────────────────────────────────────────
++
++  @Get("authorize")
++  async authorize(
++    @CurrentUser() principal: RingeeAuthPrincipal,
++    @Query("client_id") clientId: string,
++    @Query("redirect_uri") redirectUri: string,
++    @Query("code_challenge") codeChallenge: string,
++    @Query("code_challenge_method") codeChallengeMethod: string,
++    @Query("scope") scope: string,
++    @Query("state") state: string,
++    @Res() res: Response,
++  ): Promise<void> {
++    const validated = await this.oauth.validateAuthorizationRequest({
++      clientId: clientId ?? "",
++      redirectUri: redirectUri ?? "",
++      codeChallenge: codeChallenge ?? "",
++      codeChallengeMethod: codeChallengeMethod ?? "",
++      scope: scope ?? "",
++    });
++    if (!validated) {
++      throw new HttpException(
++        "Invalid authorization request",
++        HttpStatus.BAD_REQUEST,
++      );
++    }
++    const requestId = randomBytes(16).toString("hex");
++    const pending: PendingRequest = {
++      userId: principal.id,
++      clientId: validated.client.clientId,
++      clientName: validated.client.name,
++      redirectUri: validated.redirectUri,
++      codeChallenge,
++      scopes: validated.scopes,
++      state: typeof state === "string" ? state.slice(0, 512) : "",
++    };
++    await this.redis.set(
++      requestKey(requestId),
++      JSON.stringify(pending),
++      OAUTH_REQUEST_TTL_MS,
++    );
++    res.redirect(`${FRONTEND_URL}/oauth/consent?request=${requestId}`);
++  }
++
++  @Get("authorize/request")
++  async getRequest(
++    @CurrentUser() principal: RingeeAuthPrincipal,
++    @Query("request") requestId: string,
++  ): Promise<{
++    clientName: string;
++    scopes: string[];
++    state: string;
++  } | null> {
++    const pending = await this.takePending(requestId, principal.id, false);
++    if (!pending) return null;
++    return {
++      clientName: pending.clientName,
++      scopes: pending.scopes,
++      state: pending.state,
++    };
++  }
++
++  @Post("authorize/decision")
++  @HttpCode(HttpStatus.NO_CONTENT)
++  async decision(
++    @CurrentUser() principal: RingeeAuthPrincipal,
++    @Body() body: { request?: string; approved?: boolean },
++    @Res() res: Response,
++  ): Promise<void> {
++    const pending = await this.takePending(
++      body?.request ?? "",
++      principal.id,
++      true,
++    );
++    if (!pending) {
++      throw new HttpException("Unknown or expired request", HttpStatus.GONE);
++    }
++    if (!body?.approved) {
++      const url = new URL(pending.redirectUri);
++      url.searchParams.set("error", "access_denied");
++      if (pending.state) url.searchParams.set("state", pending.state);
++      res.redirect(url.toString());
++      return;
++    }
++    const code = await this.oauth.issueCode({
++      userId: pending.userId,
++      clientId: pending.clientId,
++      redirectUri: pending.redirectUri,
++      codeChallenge: pending.codeChallenge,
++      scopes: pending.scopes,
++    });
++    const url = new URL(pending.redirectUri);
++    url.searchParams.set("code", code);
++    if (pending.state) url.searchParams.set("state", pending.state);
++    res.redirect(url.toString());
++  }
++
++  // ── Token ─────────────────────────────────────────────────────────
++
++  @Public()
++  @Post("token")
++  @HttpCode(HttpStatus.OK)
++  async token(
++    @Body()
++    body: {
++      grant_type?: string;
++      code?: string;
++      code_verifier?: string;
++      refresh_token?: string;
++      client_id?: string;
++      redirect_uri?: string;
++    },
++  ): Promise<{
++    access_token: string;
++    refresh_token: string;
++    expires_in: number;
++    scope: string;
++    token_type: "Bearer";
++  }> {
++    const grantType = body?.grant_type;
++    if (grantType === "authorization_code") {
++      const tokens = await this.oauth.exchangeCode({
++        code: body?.code ?? "",
++        codeVerifier: body?.code_verifier ?? "",
++        clientId: body?.client_id ?? "",
++        redirectUri: body?.redirect_uri ?? "",
++      });
++      if (!tokens) {
++        throw new HttpException("Invalid grant", HttpStatus.BAD_REQUEST);
++      }
++      return toTokenResponse(tokens);
++    }
++    if (grantType === "refresh_token") {
++      const tokens = await this.oauth.refreshTokens({
++        refreshToken: body?.refresh_token ?? "",
++        clientId: body?.client_id ?? "",
++      });
++      if (!tokens) {
++        throw new HttpException("Invalid grant", HttpStatus.BAD_REQUEST);
++      }
++      return toTokenResponse(tokens);
++    }
++    throw new HttpException(
++      "Unsupported grant type",
++      HttpStatus.BAD_REQUEST,
++    );
++  }
++
++  // ── Revocation ────────────────────────────────────────────────────
++
++  @Public()
++  @Post("revoke")
++  @HttpCode(HttpStatus.OK)
++  async revoke(@Body() body: { token?: string }): Promise<{ ok: true }> {
++    // RFC 7009 §2.2.1: unknown tokens still succeed.
++    if (typeof body?.token === "string" && body.token.length > 0) {
++      await this.oauth.revoke(body.token.slice(0, 2048));
++    }
++    return { ok: true };
++  }
++
++  // ── Discovery ─────────────────────────────────────────────────────
++
++  @Public()
++  @Get(".well-known/oauth-authorization-server")
++  discovery(): Record<string, unknown> {
++    const issuer = this.issuer();
++    return {
++      issuer,
++      authorization_endpoint: `${issuer}/api/oauth/authorize`,
++      token_endpoint: `${issuer}/api/oauth/token`,
++      revocation_endpoint: `${issuer}/api/oauth/revoke`,
++      response_types_supported: ["code"],
++      grant_types_supported: ["authorization_code", "refresh_token"],
++      code_challenge_methods_supported: ["S256"],
++      scopes_supported: ["ringee:use"],
++      token_endpoint_auth_methods_supported: ["none"],
++    };
++  }
++
++  // ── Helpers ───────────────────────────────────────────────────────
++
++  private issuer(): string {
++    return (apiConfiguration.BACKEND_URL || "").replace(/\/+$/, "");
++  }
++
++  private async takePending(
++    requestId: string,
++    userId: string,
++    consume: boolean,
++  ): Promise<PendingRequest | null> {
++    if (!/^[0-9a-f]{32}$/.test(requestId)) return null;
++    const key = requestKey(requestId);
++    const raw = await this.redis.getRaw(key);
++    if (raw === null) return null;
++    let pending: PendingRequest;
++    try {
++      pending = JSON.parse(raw) as PendingRequest;
++    } catch {
++      return null;
++    }
++    if (pending.userId !== userId) return null;
++    if (consume) {
++      const taken = await this.redis.compareAndSwap(key, raw, null);
++      if (!taken) return null;
++    }
++    return pending;
++  }
++}
++
++function requestKey(requestId: string): string {
++  const digest = createHash("sha256")
++    .update(requestId, "utf8")
++    .digest("hex");
++  return `${OAUTH_REQUEST_KEY_PREFIX}:${digest}`;
++}
++
++function toTokenResponse(tokens: {
++  accessToken: string;
++  refreshToken: string;
++  expiresIn: number;
++  scope: string;
++}): {
++  access_token: string;
++  refresh_token: string;
++  expires_in: number;
++  scope: string;
++  token_type: "Bearer";
++} {
++  return {
++    access_token: tokens.accessToken,
++    refresh_token: tokens.refreshToken,
++    expires_in: tokens.expiresIn,
++    scope: tokens.scope,
++    token_type: "Bearer",
++  };
++}
+diff --git a/apps/browser-extension/src/lib/oauth.ts b/apps/browser-extension/src/lib/oauth.ts
+new file mode 100644
+index 0000000..9ab006d
+--- /dev/null
++++ b/apps/browser-extension/src/lib/oauth.ts
+@@ -0,0 +1,193 @@
++/**
++ * OAuth 2.0 authorization-code + PKCE client for the browser extension.
++ *
++ * The extension is a public OAuth client (`ringee-extension`). It never sees
++ * the user's password or session cookies — only OAuth tokens obtained through
++ * the system browser flow:
++ *
++ *   1. `startLogin()` opens the Ringee authorization endpoint via
++ *      `chrome.identity.launchWebAuthFlow` with a S256 PKCE challenge.
++ *   2. The user signs in and approves consent in the browser.
++ *   3. The redirect (to the exact registered
++ *      `https://<extension-id>.chromiumapp.org/oauth/callback`) carries the
++ *      authorization code back.
++ *   4. The code is exchanged for tokens via `/api/oauth/token`.
++ *
++ * Tokens live in `chrome.storage.local` (the extension's own storage — never
++ * content-script or web-page storage). Access tokens are refreshed
++ * automatically when expired.
++ */
++
++const API_URL =
++  import.meta.env.VITE_RINGEE_API_URL ?? "https://api.ringee.io/api";
++const CLIENT_ID = "ringee-extension";
++const SCOPES = "ringee:use";
++
++interface StoredTokens {
++  accessToken: string;
++  refreshToken: string;
++  expiresAt: number;
++}
++
++const STORAGE_KEY = "ringee:oauth:tokens:v1";
++
++function redirectUri(): string {
++  return chrome.identity.getRedirectURL("oauth/callback");
++}
++
++function base64url(bytes: Uint8Array): string {
++  let binary = "";
++  for (const b of bytes) binary += String.fromCharCode(b);
++  return btoa(binary)
++    .replace(/\+/g, "-")
++    .replace(/\//g, "_")
++    .replace(/=+$/, "");
++}
++
++async function pkcePair(): Promise<{ verifier: string; challenge: string }> {
++  const raw = crypto.getRandomValues(new Uint8Array(32));
++  const verifier = base64url(raw);
++  const digest = await crypto.subtle.digest(
++    "SHA-256",
++    new TextEncoder().encode(verifier),
++  );
++  return { verifier, challenge: base64url(new Uint8Array(digest)) };
++}
++
++async function readTokens(): Promise<StoredTokens | null> {
++  const data = await chrome.storage.local.get(STORAGE_KEY);
++  const tokens = data[STORAGE_KEY] as StoredTokens | undefined;
++  if (!tokens?.accessToken || !tokens?.refreshToken) return null;
++  return tokens;
++}
++
++async function writeTokens(tokens: StoredTokens): Promise<void> {
++  await chrome.storage.local.set({ [STORAGE_KEY]: tokens });
++}
++
++async function exchangeCode(
++  code: string,
++  verifier: string,
++): Promise<StoredTokens> {
++  const res = await fetch(`${API_URL}/oauth/token`, {
++    method: "POST",
++    headers: { "Content-Type": "application/json" },
++    body: JSON.stringify({
++      grant_type: "authorization_code",
++      code,
++      code_verifier: verifier,
++      client_id: CLIENT_ID,
++      redirect_uri: redirectUri(),
++    }),
++  });
++  if (!res.ok) throw new Error(`Token exchange failed: ${res.status}`);
++  const body = (await res.json()) as {
++    access_token: string;
++    refresh_token: string;
++    expires_in: number;
++  };
++  return {
++    accessToken: body.access_token,
++    refreshToken: body.refresh_token,
++    expiresAt: Date.now() + body.expires_in * 1_000,
++  };
++}
++
++async function refresh(tokens: StoredTokens): Promise<StoredTokens | null> {
++  const res = await fetch(`${API_URL}/oauth/token`, {
++    method: "POST",
++    headers: { "Content-Type": "application/json" },
++    body: JSON.stringify({
++      grant_type: "refresh_token",
++      refresh_token: tokens.refreshToken,
++      client_id: CLIENT_ID,
++    }),
++  });
++  if (!res.ok) {
++    await chrome.storage.local.remove(STORAGE_KEY);
++    return null;
++  }
++  const body = (await res.json()) as {
++    access_token: string;
++    refresh_token: string;
++    expires_in: number;
++  };
++  const next: StoredTokens = {
++    accessToken: body.access_token,
++    refreshToken: body.refresh_token,
++    expiresAt: Date.now() + body.expires_in * 1_000,
++  };
++  await writeTokens(next);
++  return next;
++}
++
++/**
++ * Start the OAuth login. Opens the Ringee authorization page in a browser
++ * window; resolves when tokens are stored, rejects when the user cancels.
++ */
++export async function startLogin(): Promise<void> {
++  const { verifier, challenge } = await pkcePair();
++  const state = base64url(crypto.getRandomValues(new Uint8Array(16)));
++  const params = new URLSearchParams({
++    client_id: CLIENT_ID,
++    redirect_uri: redirectUri(),
++    response_type: "code",
++    code_challenge: challenge,
++    code_challenge_method: "S256",
++    scope: SCOPES,
++    state,
++  });
++  const authUrl = `${API_URL}/oauth/authorize?${params.toString()}`;
++  const redirect = await chrome.identity.launchWebAuthFlow({
++    url: authUrl,
++    interactive: true,
++  });
++  if (!redirect) throw new Error("Sign-in was cancelled");
++  const url = new URL(redirect);
++  if (url.searchParams.get("state") !== state) {
++    throw new Error("State mismatch — sign-in was tampered with");
++  }
++  const code = url.searchParams.get("code");
++  if (!code) throw new Error("No authorization code returned");
++  const tokens = await exchangeCode(code, verifier);
++  await writeTokens(tokens);
++}
++
++/** Return a valid access token, refreshing when expired. Null when signed out. */
++export async function getAccessToken(opts?: {
++  forceRefresh?: boolean;
++}): Promise<string | null> {
++  const tokens = await readTokens();
++  if (!tokens) return null;
++  if (opts?.forceRefresh) {
++    const refreshed = await refresh(tokens);
++    return refreshed?.accessToken ?? null;
++  }
++  // Refresh a minute before expiry to avoid racing the clock.
++  if (tokens.expiresAt - Date.now() > 60_000) return tokens.accessToken;
++  const refreshed = await refresh(tokens);
++  return refreshed?.accessToken ?? null;
++}
++
++/** True when tokens are stored (the access token may still need a refresh). */
++export async function isSignedIn(): Promise<boolean> {
++  return (await readTokens()) !== null;
++}
++
++/** Revoke tokens server-side and clear local storage. */
++export async function signOut(): Promise<void> {
++  const tokens = await readTokens();
++  if (tokens) {
++    await fetch(`${API_URL}/oauth/revoke`, {
++      method: "POST",
++      headers: { "Content-Type": "application/json" },
++      body: JSON.stringify({ token: tokens.refreshToken }),
++    }).catch(() => undefined);
++    await fetch(`${API_URL}/oauth/revoke`, {
++      method: "POST",
++      headers: { "Content-Type": "application/json" },
++      body: JSON.stringify({ token: tokens.accessToken }),
++    }).catch(() => undefined);
++  }
++  await chrome.storage.local.remove(STORAGE_KEY);
++}
+diff --git a/apps/browser-extension/src/sidepanel/use-extension-auth.ts b/apps/browser-extension/src/sidepanel/use-extension-auth.ts
+new file mode 100644
+index 0000000..37d0cfc
+--- /dev/null
++++ b/apps/browser-extension/src/sidepanel/use-extension-auth.ts
+@@ -0,0 +1,41 @@
++import { useCallback, useEffect, useState } from "react";
++import {
++  getAccessToken,
++  isSignedIn,
++  signOut as oauthSignOut,
++  startLogin,
++} from "../lib/oauth";
++
++/**
++ * Extension auth state. The sidepanel never touches Clerk — it shares the
++ * OAuth tokens stored by ../lib/oauth.ts (written by the login flow,
++ * refreshed on demand).
++ */
++export function useExtensionAuth() {
++  const [signedIn, setSignedIn] = useState<boolean | null>(null);
++
++  const refresh = useCallback(async () => {
++    setSignedIn(await isSignedIn());
++  }, []);
++
++  useEffect(() => {
++    refresh();
++  }, [refresh]);
++
++  const signIn = useCallback(async () => {
++    await startLogin();
++    await refresh();
++  }, [refresh]);
++
++  const signOut = useCallback(async () => {
++    await oauthSignOut();
++    await refresh();
++  }, [refresh]);
++
++  const getToken = useCallback(
++    async (opts?: { forceRefresh?: boolean }) => getAccessToken(opts),
++    [],
++  );
++
++  return { isLoaded: signedIn !== null, isSignedIn: signedIn === true, signIn, signOut, getToken };
++}
+diff --git a/apps/frontend/src/app/oauth/consent/page.tsx b/apps/frontend/src/app/oauth/consent/page.tsx
+new file mode 100644
+index 0000000..1a0680e
+--- /dev/null
++++ b/apps/frontend/src/app/oauth/consent/page.tsx
+@@ -0,0 +1,16 @@
++import { Metadata } from 'next';
++import { OAuthConsentView } from '@/features/auth/components/oauth-consent-view';
++
++export const metadata: Metadata = {
++  title: 'Authorize application | Ringee',
++  description:
++    'Review and approve third-party application access to your Ringee account.',
++  robots: {
++    index: false,
++    follow: false
++  }
++};
++
++export default function OAuthConsentPage() {
++  return <OAuthConsentView />;
++}
+diff --git a/apps/frontend/src/features/auth/components/oauth-consent-view.tsx b/apps/frontend/src/features/auth/components/oauth-consent-view.tsx
+new file mode 100644
+index 0000000..61a7834
+--- /dev/null
++++ b/apps/frontend/src/features/auth/components/oauth-consent-view.tsx
+@@ -0,0 +1,132 @@
++"use client";
++
++import { useEffect, useState } from "react";
++import { useSearchParams } from "next/navigation";
++import { useTranslations } from "next-intl";
++import { useApi } from "@ringee/frontend-shared/hooks/use.api";
++import { Button } from "@ringee/frontend-shared/components/ui/button";
++
++/**
++ * OAuth consent screen. Shown when a first-party consumer (browser extension,
++ * ChatGPT connector) requests access. The user reviews the client name and
++ * scopes, then approves or denies. Approval issues an authorization code and
++ * redirects back to the client's exact registered redirect URI.
++ */
++export function OAuthConsentView() {
++  const api = useApi();
++  const t = useTranslations("auth.oauthConsent");
++  const searchParams = useSearchParams();
++  const requestId = searchParams.get("request") ?? "";
++
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState<string | null>(null);
++  const [clientName, setClientName] = useState("");
++  const [scopes, setScopes] = useState<string[]>([]);
++  const [deciding, setDeciding] = useState(false);
++
++  useEffect(() => {
++    if (!requestId) {
++      setError(t("missingRequest"));
++      setLoading(false);
++      return;
++    }
++    api
++      .get<{ clientName: string; scopes: string[]; state: string }>(
++        `/oauth/authorize/request?request=${encodeURIComponent(requestId)}`,
++      )
++      .then((data) => {
++        if (!data) {
++          setError(t("expiredRequest"));
++          return;
++        }
++        setClientName(data.clientName);
++        setScopes(data.scopes);
++      })
++      .catch(() => setError(t("loadError")))
++      .finally(() => setLoading(false));
++  }, [api, requestId, t]);
++
++  const decide = async (approved: boolean) => {
++    setDeciding(true);
++    try {
++      // The API responds with a redirect to the client's redirect URI.
++      // Use redirect:manual so the Location is followed explicitly instead
++      // of navigating blind on an unexpected response.
++      const res = await fetch("/api/oauth/authorize/decision", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        credentials: "include",
++        redirect: "manual",
++        body: JSON.stringify({ request: requestId, approved }),
++      });
++      const location = res.headers.get("location");
++      if (location) {
++        window.location.href = location;
++        return;
++      }
++      setError(t("noRedirect"));
++    } catch {
++      setError(t("decisionError"));
++    } finally {
++      setDeciding(false);
++    }
++  };
++
++  if (loading) {
++    return (
++      <div className="flex min-h-screen items-center justify-center">
++        <p className="text-muted-foreground text-sm">{t("loading")}</p>
++      </div>
++    );
++  }
++
++  if (error) {
++    return (
++      <div className="flex min-h-screen items-center justify-center p-6">
++        <p className="text-sm text-red-500">{error}</p>
++      </div>
++    );
++  }
++
++  return (
++    <div className="flex min-h-screen items-center justify-center p-6">
++      <div className="w-full max-w-md space-y-6 rounded-lg border p-6">
++        <div className="space-y-2">
++          <h1 className="text-xl font-semibold">
++            {t("title", { clientName })}
++          </h1>
++          <p className="text-muted-foreground text-sm">
++            {t("description", { clientName })}
++          </p>
++        </div>
++        <ul className="list-disc space-y-1 pl-5 text-sm">
++          {scopes.map((scope) => (
++            <li key={scope}>
++              <code className="rounded bg-muted px-1 py-0.5 text-xs">
++                {scope}
++              </code>
++            </li>
++          ))}
++        </ul>
++        <p className="text-muted-foreground text-xs">{t("revocable")}</p>
++        <div className="flex gap-3">
++          <Button
++            onClick={() => decide(true)}
++            disabled={deciding}
++            className="flex-1"
++          >
++            {t("authorize")}
++          </Button>
++          <Button
++            variant="outline"
++            onClick={() => decide(false)}
++            disabled={deciding}
++            className="flex-1"
++          >
++            {t("deny")}
++          </Button>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/packages/database/src/database/repositories/oauth-client.repository.ts b/packages/database/src/database/repositories/oauth-client.repository.ts
+new file mode 100644
+index 0000000..4501407
+--- /dev/null
++++ b/packages/database/src/database/repositories/oauth-client.repository.ts
+@@ -0,0 +1,12 @@
++import { Injectable } from "@nestjs/common";
++import { PrismaService } from "../prisma.service";
++
++/** Persistence projection only; client registration decisions live in services. */
++@Injectable()
++export class OAuthClientRepository {
++  constructor(private readonly prisma: PrismaService) {}
++
++  async findByClientId(clientId: string) {
++    return this.prisma.oAuthClient.findUnique({ where: { clientId } });
++  }
++}
+diff --git a/packages/database/src/database/repositories/oauth-refresh-token.repository.ts b/packages/database/src/database/repositories/oauth-refresh-token.repository.ts
+new file mode 100644
+index 0000000..21df198
+--- /dev/null
++++ b/packages/database/src/database/repositories/oauth-refresh-token.repository.ts
+@@ -0,0 +1,46 @@
++import { Injectable } from "@nestjs/common";
++import { PrismaService } from "../prisma.service";
++
++/** Persistence projection only; token lifecycle decisions live in services. */
++@Injectable()
++export class OAuthRefreshTokenRepository {
++  constructor(private readonly prisma: PrismaService) {}
++
++  async create(data: {
++    tokenHash: string;
++    userId: string;
++    clientId: string;
++    scopes: string[];
++    expiresAt: Date;
++  }) {
++    return this.prisma.oAuthRefreshToken.create({ data });
++  }
++
++  async findByTokenHash(tokenHash: string) {
++    return this.prisma.oAuthRefreshToken.findUnique({
++      where: { tokenHash },
++    });
++  }
++
++  async revokeByTokenHash(tokenHash: string): Promise<void> {
++    await this.prisma.oAuthRefreshToken.updateMany({
++      where: { tokenHash, revokedAt: null },
++      data: { revokedAt: new Date() },
++    });
++  }
++
++  async revokeAllForUser(userId: string): Promise<number> {
++    const { count } = await this.prisma.oAuthRefreshToken.updateMany({
++      where: { userId, revokedAt: null },
++      data: { revokedAt: new Date() },
++    });
++    return count;
++  }
++
++  async deleteExpired(now: Date): Promise<number> {
++    const { count } = await this.prisma.oAuthRefreshToken.deleteMany({
++      where: { expiresAt: { lt: now } },
++    });
++    return count;
++  }
++}
+diff --git a/packages/services/src/services/oauth-provider.service.ts b/packages/services/src/services/oauth-provider.service.ts
+new file mode 100644
+index 0000000..3398e33
+--- /dev/null
++++ b/packages/services/src/services/oauth-provider.service.ts
+@@ -0,0 +1,444 @@
++import {
++  createHash,
++  createHmac,
++  randomBytes,
++  timingSafeEqual,
++} from "node:crypto";
++import { Injectable, Logger } from "@nestjs/common";
++import { apiConfiguration } from "@ringee/configuration";
++import {
++  OAuthClientRepository,
++  OAuthRefreshTokenRepository,
++  UserRepository,
++} from "@ringee/database";
++import { RedisService } from "@ringee/platform";
++
++/** Authorization codes live 10 minutes and are single-use. */
++const OAUTH_CODE_TTL_MS = 10 * 60 * 1_000;
++/** Access tokens live 1 hour. */
++const OAUTH_ACCESS_TOKEN_TTL_S = 3_600;
++/** Refresh tokens live 30 days and rotate on use. */
++const OAUTH_REFRESH_TOKEN_TTL_MS = 30 * 24 * 3_600 * 1_000;
++/** Revoked access-token JTIs are denied for at most the token lifetime. */
++const OAUTH_REVOKED_JTI_TTL_MS = OAUTH_ACCESS_TOKEN_TTL_S * 1_000;
++
++const OAUTH_CODE_KEY_PREFIX = "ringee:oauth:code:v1";
++const OAUTH_REVOKED_JTI_KEY_PREFIX = "ringee:oauth:revoked-jti:v1";
++
++/** Only S256 is accepted — plain is rejected. */
++const CODE_CHALLENGE_METHOD = "S256";
++const CODE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
++
++export interface OAuthClient {
++  clientId: string;
++  name: string;
++  redirectUris: string[];
++  scopes: string[];
++}
++
++export interface OAuthTokens {
++  accessToken: string;
++  refreshToken: string;
++  expiresIn: number;
++  scope: string;
++}
++
++export interface VerifiedAccessToken {
++  userId: string;
++  clientId: string;
++  scopes: string[];
++}
++
++interface StoredCode {
++  userId: string;
++  clientId: string;
++  redirectUri: string;
++  codeChallenge: string;
++  scopes: string[];
++}
++
++/**
++ * OAuth 2.0 authorization server for first-party consumers (browser
++ * extension, ChatGPT connector).
++ *
++ * - Authorization codes are 32 random bytes; only their SHA-256 digest is
++ *   stored in Redis (10-minute TTL), bound to client, user, exact redirect
++ *   URI, PKCE challenge and scopes. Consumed atomically: a replayed code
++ *   finds nothing.
++ * - PKCE S256 is mandatory. `plain` and missing challenges are rejected.
++ * - Redirect URIs must exactly match a registered URI. Anything else fails.
++ * - Access tokens are HS256 JWTs signed with the dedicated OAUTH_JWT_SECRET
++ *   (never the Better Auth or app-encryption secret). The resource server
++ *   verifies issuer, audience, expiry, scopes and a Redis revocation list.
++ * - Refresh tokens are opaque 32-byte values; only SHA-256 digests reach the
++ *   database. They rotate on every use; the old row is revoked.
++ * - No dynamic client registration: only rows in OAuthClient may participate.
++ * - Token values are never logged.
++ */
++@Injectable()
++export class OAuthProviderService {
++  private readonly logger = new Logger(OAuthProviderService.name);
++
++  constructor(
++    private readonly redis: RedisService,
++    private readonly clients: OAuthClientRepository,
++    private readonly refreshTokens: OAuthRefreshTokenRepository,
++    private readonly users: UserRepository,
++  ) {}
++
++  // ── Authorization endpoint ──────────────────────────────────────────
++
++  /**
++   * Validate an authorization request. Returns the client and the exact
++   * redirect URI, or null when anything is off (unknown client, redirect
++   * mismatch, missing/invalid PKCE, unsupported scope).
++   */
++  async validateAuthorizationRequest(input: {
++    clientId: string;
++    redirectUri: string;
++    codeChallenge: string;
++    codeChallengeMethod: string;
++    scope: string;
++  }): Promise<{ client: OAuthClient; redirectUri: string; scopes: string[] } | null> {
++    const row = await this.clients.findByClientId(input.clientId);
++    if (!row) return null;
++    // Exact redirect-URI match: no prefixes, no wildcards, no deviation.
++    if (!row.redirectUris.includes(input.redirectUri)) return null;
++    if (
++      input.codeChallengeMethod !== CODE_CHALLENGE_METHOD ||
++      !CODE_PATTERN.test(input.codeChallenge)
++    ) {
++      return null;
++    }
++    const requested = input.scope.split(/[ ,]+/).filter(Boolean);
++    const scopes = requested.length > 0 ? requested : row.scopes;
++    if (!scopes.every((s) => row.scopes.includes(s))) return null;
++    return {
++      client: {
++        clientId: row.clientId,
++        name: row.name,
++        redirectUris: row.redirectUris,
++        scopes: row.scopes,
++      },
++      redirectUri: input.redirectUri,
++      scopes,
++    };
++  }
++
++  /** Issue an authorization code after the user approved consent. */
++  async issueCode(input: {
++    userId: string;
++    clientId: string;
++    redirectUri: string;
++    codeChallenge: string;
++    scopes: string[];
++  }): Promise<string> {
++    const code = randomBytes(32).toString("base64url");
++    const stored: StoredCode = {
++      userId: input.userId,
++      clientId: input.clientId,
++      redirectUri: input.redirectUri,
++      codeChallenge: input.codeChallenge,
++      scopes: input.scopes,
++    };
++    await this.redis.set(
++      codeKey(code),
++      JSON.stringify(stored),
++      OAUTH_CODE_TTL_MS,
++    );
++    return code;
++  }
++
++  // ── Token endpoint ──────────────────────────────────────────────────
++
++  /**
++   * Exchange an authorization code for tokens. Fails when the code is
++   * unknown, already used, expired, bound to a different redirect URI, or
++   * the PKCE verifier does not match the challenge.
++   */
++  async exchangeCode(input: {
++    code: string;
++    codeVerifier: string;
++    clientId: string;
++    redirectUri: string;
++  }): Promise<OAuthTokens | null> {
++    if (!CODE_PATTERN.test(input.code)) return null;
++    const key = codeKey(input.code);
++    const raw = await this.redis.getRaw(key);
++    if (raw === null) return null;
++    const taken = await this.redis.compareAndSwap(key, raw, null);
++    if (!taken) return null;
++
++    let stored: StoredCode;
++    try {
++      stored = JSON.parse(raw) as StoredCode;
++    } catch {
++      return null;
++    }
++    if (
++      stored.clientId !== input.clientId ||
++      stored.redirectUri !== input.redirectUri ||
++      !verifyCodeChallenge(input.codeVerifier, stored.codeChallenge)
++    ) {
++      return null;
++    }
++    // The user may have been blocked or deleted between consent and use.
++    if (!(await this.isUserActive(stored.userId))) return null;
++    return this.mintTokens(stored.userId, stored.clientId, stored.scopes);
++  }
++
++  /** Rotate a refresh token. The old row is revoked; a new pair is issued. */
++  async refreshTokens(input: {
++    refreshToken: string;
++    clientId: string;
++  }): Promise<OAuthTokens | null> {
++    if (!CODE_PATTERN.test(input.refreshToken)) return null;
++    const hash = sha256hex(input.refreshToken);
++    const row = await this.refreshTokens.findByTokenHash(hash);
++    if (
++      !row ||
++      row.clientId !== input.clientId ||
++      row.revokedAt !== null ||
++      row.expiresAt.getTime() <= Date.now()
++    ) {
++      return null;
++    }
++    if (!(await this.isUserActive(row.userId))) return null;
++    await this.refreshTokens.revokeByTokenHash(hash);
++    return this.mintTokens(row.userId, row.clientId, row.scopes);
++  }
++
++  // ── Revocation (RFC 7009) ───────────────────────────────────────────
++
++  /**
++   * Revoke a refresh token or an access token. Unknown tokens still return
++   * success (RFC 7009 §2.2.1) so revocation cannot be probed.
++   */
++  async revoke(token: string): Promise<void> {
++    // Refresh token: revoke the stored row.
++    if (CODE_PATTERN.test(token)) {
++      await this.refreshTokens.revokeByTokenHash(sha256hex(token));
++    }
++    // Access token: deny its JTI for the remainder of its lifetime.
++    const verified = this.verifyJwt(token, null);
++    if (verified) {
++      const ttlMs = Math.max(
++        0,
++        verified.exp * 1_000 - Date.now(),
++      );
++      if (ttlMs > 0) {
++        await this.redis.set(
++          revokedJtiKey(verified.jti),
++          "1",
++          Math.min(ttlMs, OAUTH_REVOKED_JTI_TTL_MS),
++        );
++      }
++    }
++  }
++
++  // ── Resource-server verification ────────────────────────────────────
++
++  /**
++   * Verify a bearer access token for a resource server. Checks signature,
++   * issuer, audience, expiry, scope containment and revocation. Returns the
++   * bound user/client/scopes, or null. Also rejects blocked users.
++   */
++  async verifyAccessToken(
++    token: string,
++    expectedAudience: string,
++    requiredScopes: string[] = [],
++  ): Promise<VerifiedAccessToken | null> {
++    const verified = this.verifyJwt(token, expectedAudience);
++    if (!verified) return null;
++    if (!requiredScopes.every((s) => verified.scope.includes(s))) return null;
++    const revoked = await this.redis.getRaw(revokedJtiKey(verified.jti));
++    if (revoked !== null) return null;
++    const client = await this.clients.findByClientId(verified.clientId);
++    if (!client) return null;
++    if (!(await this.isUserActive(verified.userId))) return null;
++    return {
++      userId: verified.userId,
++      clientId: verified.clientId,
++      scopes: verified.scope,
++    };
++  }
++
++  // ── Internals ───────────────────────────────────────────────────────
++
++  private async mintTokens(
++    userId: string,
++    clientId: string,
++    scopes: string[],
++  ): Promise<OAuthTokens> {
++    const nowS = Math.floor(Date.now() / 1_000);
++    const jti = randomBytes(16).toString("hex");
++    const accessToken = signJwt(
++      {
++        iss: this.issuer(),
++        sub: userId,
++        aud: this.audienceFor(clientId),
++        exp: nowS + OAUTH_ACCESS_TOKEN_TTL_S,
++        iat: nowS,
++        jti,
++        client_id: clientId,
++        scope: scopes.join(" "),
++      },
++      this.jwtSecret(),
++    );
++    const refreshToken = randomBytes(32).toString("base64url");
++    await this.refreshTokens.create({
++      tokenHash: sha256hex(refreshToken),
++      userId,
++      clientId,
++      scopes,
++      expiresAt: new Date(Date.now() + OAUTH_REFRESH_TOKEN_TTL_MS),
++    });
++    return {
++      accessToken,
++      refreshToken,
++      expiresIn: OAUTH_ACCESS_TOKEN_TTL_S,
++      scope: scopes.join(" "),
++    };
++  }
++
++  private async isUserActive(userId: string): Promise<boolean> {
++    try {
++      const user = await this.users.findById(userId);
++      return !!user && !user.blockedAt;
++    } catch {
++      return false;
++    }
++  }
++
++  private issuer(): string {
++    return (apiConfiguration.BACKEND_URL || "").replace(/\/+$/, "");
++  }
++
++  private audienceFor(clientId: string): string {
++    // ChatGPT tokens are audience-bound to the protected resource; the
++    // extension targets the backend API itself.
++    if (clientId === "ringee-chatgpt") {
++      return `${this.issuer()}/api/mcp/chatgpt`;
++    }
++    return `${this.issuer()}/api`;
++  }
++
++  private jwtSecret(): string {
++    const secret = apiConfiguration.OAUTH_JWT_SECRET;
++    if (!secret || secret.length < 32) {
++      throw new Error("OAUTH_JWT_SECRET is not configured");
++    }
++    return secret;
++  }
++
++  private verifyJwt(
++    token: string,
++    expectedAudience: string | null,
++  ): {
++    userId: string;
++    clientId: string;
++    scope: string[];
++    exp: number;
++    jti: string;
++  } | null {
++    try {
++      const parts = token.split(".");
++      if (parts.length !== 3) return null;
++      const [headerB64, payloadB64, sigB64] = parts;
++      const header = JSON.parse(base64urlDecode(headerB64)) as {
++        alg?: string;
++        typ?: string;
++      };
++      if (header.alg !== "HS256") return null;
++      const expectedSig = createHmac("sha256", this.jwtSecret())
++        .update(`${headerB64}.${payloadB64}`)
++        .digest();
++      const actualSig = Buffer.from(base64urlDecode(sigB64), "binary");
++      if (
++        expectedSig.length !== actualSig.length ||
++        !timingSafeEqual(expectedSig, actualSig)
++      ) {
++        return null;
++      }
++      const payload = JSON.parse(base64urlDecode(payloadB64)) as {
++        iss?: string;
++        sub?: string;
++        aud?: string;
++        exp?: number;
++        iat?: number;
++        jti?: string;
++        client_id?: string;
++        scope?: string;
++      };
++      if (
++        typeof payload.iss !== "string" ||
++        payload.iss !== this.issuer() ||
++        typeof payload.sub !== "string" ||
++        typeof payload.jti !== "string" ||
++        typeof payload.client_id !== "string" ||
++        typeof payload.exp !== "number" ||
++        payload.exp * 1_000 <= Date.now()
++      ) {
++        return null;
++      }
++      if (expectedAudience !== null && payload.aud !== expectedAudience) {
++        return null;
++      }
++      return {
++        userId: payload.sub,
++        clientId: payload.client_id,
++        scope: (payload.scope ?? "").split(" ").filter(Boolean),
++        exp: payload.exp,
++        jti: payload.jti,
++      };
++    } catch {
++      return null;
++    }
++  }
++}
++
++// ── Helpers ───────────────────────────────────────────────────────────
++
++function sha256hex(value: string): string {
++  return createHash("sha256").update(value, "utf8").digest("hex");
++}
++
++function codeKey(code: string): string {
++  return `${OAUTH_CODE_KEY_PREFIX}:${sha256hex(code)}`;
++}
++
++function revokedJtiKey(jti: string): string {
++  return `${OAUTH_REVOKED_JTI_KEY_PREFIX}:${jti}`;
++}
++
++/** PKCE S256: code_challenge = BASE64URL(SHA256(code_verifier)). */
++function verifyCodeChallenge(verifier: string, challenge: string): boolean {
++  if (typeof verifier !== "string" || verifier.length < 43 || verifier.length > 128) {
++    return false;
++  }
++  const computed = createHash("sha256")
++    .update(verifier, "utf8")
++    .digest("base64url");
++  return (
++    computed.length === challenge.length &&
++    timingSafeEqual(Buffer.from(computed), Buffer.from(challenge))
++  );
++}
++
++function base64urlDecode(input: string): string {
++  return Buffer.from(input, "base64url").toString("utf8");
++}
++
++function signJwt(payload: Record<string, unknown>, secret: string): string {
++  const headerB64 = Buffer.from(
++    JSON.stringify({ alg: "HS256", typ: "JWT" }),
++  ).toString("base64url");
++  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
++  const sig = createHmac("sha256", secret)
++    .update(`${headerB64}.${payloadB64}`)
++    .digest("base64url");
++  return `${headerB64}.${payloadB64}.${sig}`;
++}
++
++// Re-exported for the spec; not part of the public barrel.
++export const __testing = { verifyCodeChallenge, signJwt, sha256hex };
+diff --git a/packages/services/src/services/oauth-provider.service.spec.ts b/packages/services/src/services/oauth-provider.service.spec.ts
+new file mode 100644
+index 0000000..0530fbd
+--- /dev/null
++++ b/packages/services/src/services/oauth-provider.service.spec.ts
+@@ -0,0 +1,403 @@
++import { describe, it, beforeEach } from "node:test";
++import assert from "node:assert/strict";
++import { createHash, randomBytes } from "node:crypto";
++import type { OAuthClientRepository } from "@ringee/database";
++import type { OAuthRefreshTokenRepository } from "@ringee/database";
++import type { UserRepository } from "@ringee/database";
++import type { RedisService } from "@ringee/platform";
++import { OAuthProviderService } from "./oauth-provider.service";
++
++const USER = "10000000-0000-4000-8000-000000000001";
++const BLOCKED_USER = "10000000-0000-4000-8000-000000000002";
++
++const EXTENSION_CLIENT = {
++  clientId: "ringee-extension",
++  name: "Ringee Browser Extension",
++  redirectUris: ["https://ringee-extension.chromiumapp.org/oauth/callback"],
++  scopes: ["ringee:use"],
++};
++
++/** PKCE pair for tests. */
++function pkcePair() {
++  const verifier = randomBytes(32).toString("base64url");
++  const challenge = createHash("sha256")
++    .update(verifier, "utf8")
++    .digest("base64url");
++  return { verifier, challenge };
++}
++
++function fakeRedis() {
++  const store = new Map<string, string>();
++  return {
++    async set(key: string, value: string): Promise<void> {
++      store.set(key, typeof value === "string" ? value : JSON.stringify(value));
++    },
++    async getRaw(key: string): Promise<string | null> {
++      return store.get(key) ?? null;
++    },
++    async compareAndSwap(
++      key: string,
++      expected: string,
++      next: string | null,
++    ): Promise<boolean> {
++      if (store.get(key) !== expected) return false;
++      if (next === null) store.delete(key);
++      else store.set(key, next);
++      return true;
++    },
++  };
++}
++
++function fakeClients() {
++  const clients = new Map<string, typeof EXTENSION_CLIENT>();
++  clients.set(EXTENSION_CLIENT.clientId, EXTENSION_CLIENT);
++  return {
++    async findByClientId(clientId: string) {
++      return clients.get(clientId) ?? null;
++    },
++  } as unknown as OAuthClientRepository;
++}
++
++function fakeRefreshTokens() {
++  const rows = new Map<string, any>();
++  return {
++    async create(data: any) {
++      const row = { ...data, revokedAt: null, createdAt: new Date() };
++      rows.set(data.tokenHash, row);
++      return row;
++    },
++    async findByTokenHash(tokenHash: string) {
++      return rows.get(tokenHash) ?? null;
++    },
++    async revokeByTokenHash(tokenHash: string) {
++      const row = rows.get(tokenHash);
++      if (row && !row.revokedAt) row.revokedAt = new Date();
++    },
++    __rows: rows,
++  } as unknown as OAuthRefreshTokenRepository;
++}
++
++function fakeUsers() {
++  const users = new Map<string, any>([
++    [USER, { id: USER, blockedAt: null }],
++    [BLOCKED_USER, { id: BLOCKED_USER, blockedAt: new Date() }],
++  ]);
++  return {
++    async findById(id: string) {
++      return users.get(id) ?? null;
++    },
++  } as unknown as UserRepository;
++}
++
++function fixture() {
++  const redis = fakeRedis();
++  const service = new OAuthProviderService(
++    redis as unknown as RedisService,
++    fakeClients(),
++    fakeRefreshTokens(),
++    fakeUsers(),
++  );
++  return { redis, service };
++}
++
++const AUTH_REQUEST = {
++  clientId: "ringee-extension",
++  redirectUri: "https://ringee-extension.chromiumapp.org/oauth/callback",
++  codeChallengeMethod: "S256",
++  scope: "ringee:use",
++};
++
++describe("OAuth provider", () => {
++  let service: OAuthProviderService;
++  beforeEach(() => {
++    service = fixture().service;
++  });
++
++  it("validates a well-formed authorization request", async () => {
++    const { challenge } = pkcePair();
++    const result = await service.validateAuthorizationRequest({
++      ...AUTH_REQUEST,
++      codeChallenge: challenge,
++    });
++    assert.ok(result);
++    assert.equal(result.client.clientId, "ringee-extension");
++    assert.equal(result.redirectUri, AUTH_REQUEST.redirectUri);
++    assert.deepEqual(result.scopes, ["ringee:use"]);
++  });
++
++  it("rejects unknown clients", async () => {
++    const { challenge } = pkcePair();
++    const result = await service.validateAuthorizationRequest({
++      ...AUTH_REQUEST,
++      clientId: "evil-client",
++      codeChallenge: challenge,
++    });
++    assert.equal(result, null);
++  });
++
++  it("rejects redirect-URI mismatches exactly", async () => {
++    const { challenge } = pkcePair();
++    for (const redirectUri of [
++      "https://ringee-extension.chromiumapp.org/oauth/callback/extra",
++      "https://ringee-extension.chromiumapp.org.evil.com/oauth/callback",
++      "https://ringee-extension.chromiumapp.org/oauth/callback?x=1",
++      "http://ringee-extension.chromiumapp.org/oauth/callback",
++    ]) {
++      const result = await service.validateAuthorizationRequest({
++        ...AUTH_REQUEST,
++        redirectUri,
++        codeChallenge: challenge,
++      });
++      assert.equal(result, null, `should reject ${redirectUri}`);
++    }
++  });
++
++  it("rejects missing or plain PKCE challenges", async () => {
++    for (const bad of [
++      { codeChallenge: "", codeChallengeMethod: "S256" },
++      { codeChallenge: "abc", codeChallengeMethod: "plain" },
++      { codeChallenge: "x".repeat(43), codeChallengeMethod: "plain" },
++    ]) {
++      const result = await service.validateAuthorizationRequest({
++        ...AUTH_REQUEST,
++        ...bad,
++      });
++      assert.equal(result, null, `should reject ${JSON.stringify(bad)}`);
++    }
++  });
++
++  it("rejects scopes the client was not granted", async () => {
++    const { challenge } = pkcePair();
++    const result = await service.validateAuthorizationRequest({
++      ...AUTH_REQUEST,
++      codeChallenge: challenge,
++      scope: "ringee:use ringee:admin",
++    });
++    assert.equal(result, null);
++  });
++
++  it("completes the code flow and rejects replay", async () => {
++    const { verifier, challenge } = pkcePair();
++    const code = await service.issueCode({
++      userId: USER,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++      codeChallenge: challenge,
++      scopes: ["ringee:use"],
++    });
++
++    const tokens = await service.exchangeCode({
++      code,
++      codeVerifier: verifier,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++    });
++    assert.ok(tokens);
++    assert.ok(tokens.accessToken.split(".").length === 3);
++    assert.ok(tokens.refreshToken.length >= 43);
++    assert.equal(tokens.expiresIn, 3600);
++
++    // Replay: the code was consumed atomically.
++    const replay = await service.exchangeCode({
++      code,
++      codeVerifier: verifier,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++    });
++    assert.equal(replay, null);
++  });
++
++  it("rejects a wrong PKCE verifier", async () => {
++    const { challenge } = pkcePair();
++    const other = pkcePair();
++    const code = await service.issueCode({
++      userId: USER,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++      codeChallenge: challenge,
++      scopes: ["ringee:use"],
++    });
++    const tokens = await service.exchangeCode({
++      code,
++      codeVerifier: other.verifier,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++    });
++    assert.equal(tokens, null);
++  });
++
++  it("rejects code exchange for a different redirect URI", async () => {
++    const { verifier, challenge } = pkcePair();
++    const code = await service.issueCode({
++      userId: USER,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++      codeChallenge: challenge,
++      scopes: ["ringee:use"],
++    });
++    const tokens = await service.exchangeCode({
++      code,
++      codeVerifier: verifier,
++      clientId: "ringee-extension",
++      redirectUri: "https://evil.example/callback",
++    });
++    assert.equal(tokens, null);
++  });
++
++  it("rotates refresh tokens: the old one dies, the new one works", async () => {
++    const { verifier, challenge } = pkcePair();
++    const code = await service.issueCode({
++      userId: USER,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++      codeChallenge: challenge,
++      scopes: ["ringee:use"],
++    });
++    const first = await service.exchangeCode({
++      code,
++      codeVerifier: verifier,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++    });
++    assert.ok(first);
++
++    const second = await service.refreshTokens({
++      refreshToken: first.refreshToken,
++      clientId: "ringee-extension",
++    });
++    assert.ok(second);
++    assert.notEqual(second.refreshToken, first.refreshToken);
++
++    // The rotated-out refresh token is revoked.
++    const reuse = await service.refreshTokens({
++      refreshToken: first.refreshToken,
++      clientId: "ringee-extension",
++    });
++    assert.equal(reuse, null);
++  });
++
++  it("revokes refresh tokens (RFC 7009)", async () => {
++    const { verifier, challenge } = pkcePair();
++    const code = await service.issueCode({
++      userId: USER,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++      codeChallenge: challenge,
++      scopes: ["ringee:use"],
++    });
++    const tokens = await service.exchangeCode({
++      code,
++      codeVerifier: verifier,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++    });
++    assert.ok(tokens);
++
++    await service.revoke(tokens.refreshToken);
++    const after = await service.refreshTokens({
++      refreshToken: tokens.refreshToken,
++      clientId: "ringee-extension",
++    });
++    assert.equal(after, null);
++  });
++
++  it("revokes access tokens: the JTI is denied afterwards", async () => {
++    const { verifier, challenge } = pkcePair();
++    const code = await service.issueCode({
++      userId: USER,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++      codeChallenge: challenge,
++      scopes: ["ringee:use"],
++    });
++    const tokens = await service.exchangeCode({
++      code,
++      codeVerifier: verifier,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++    });
++    assert.ok(tokens);
++
++    const audience = "http://127.0.0.1/api";
++    const before = await service.verifyAccessToken(tokens.accessToken, audience);
++    assert.ok(before, "token valid before revocation");
++
++    await service.revoke(tokens.accessToken);
++    const after = await service.verifyAccessToken(tokens.accessToken, audience);
++    assert.equal(after, null, "revoked access token must be denied");
++  });
++
++  it("verifies access tokens: issuer, audience, scopes", async () => {
++    const { verifier, challenge } = pkcePair();
++    const code = await service.issueCode({
++      userId: USER,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++      codeChallenge: challenge,
++      scopes: ["ringee:use"],
++    });
++    const tokens = await service.exchangeCode({
++      code,
++      codeVerifier: verifier,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++    });
++    assert.ok(tokens);
++
++    const good = await service.verifyAccessToken(
++      tokens.accessToken,
++      "http://127.0.0.1/api",
++      ["ringee:use"],
++    );
++    assert.ok(good);
++    assert.equal(good.userId, USER);
++
++    // Wrong audience fails.
++    const badAud = await service.verifyAccessToken(
++      tokens.accessToken,
++      "https://evil.example/api",
++      ["ringee:use"],
++    );
++    assert.equal(badAud, null);
++
++    // Missing scope fails.
++    const badScope = await service.verifyAccessToken(
++      tokens.accessToken,
++      "http://127.0.0.1/api",
++      ["ringee:admin"],
++    );
++    assert.equal(badScope, null);
++
++    // Tampered token fails.
++    const parts = tokens.accessToken.split(".");
++    const tampered = `${parts[0]}.${parts[1]}.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`;
++    assert.equal(
++      await service.verifyAccessToken(tampered, "http://127.0.0.1/api"),
++      null,
++    );
++  });
++
++  it("rejects tokens for blocked users", async () => {
++    const { verifier, challenge } = pkcePair();
++    const code = await service.issueCode({
++      userId: BLOCKED_USER,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++      codeChallenge: challenge,
++      scopes: ["ringee:use"],
++    });
++    // A blocked user cannot complete the code exchange.
++    const tokens = await service.exchangeCode({
++      code,
++      codeVerifier: verifier,
++      clientId: "ringee-extension",
++      redirectUri: AUTH_REQUEST.redirectUri,
++    });
++    assert.equal(tokens, null);
++  });
++
++  it("revocation of an unknown token still succeeds (RFC 7009 §2.2.1)", async () => {
++    await service.revoke(randomBytes(32).toString("base64url"));
++    await service.revoke("not-a-token");
++  });
++});
+diff --git a/packages/database/prisma/migrations/20261016000001_oauth_provider/migration.sql b/packages/database/prisma/migrations/20261016000001_oauth_provider/migration.sql
+new file mode 100644
+index 0000000..baa7f69
+--- /dev/null
++++ b/packages/database/prisma/migrations/20261016000001_oauth_provider/migration.sql
+@@ -0,0 +1,63 @@
++-- OAuth provider tables for the Better Auth cutover (WS-5).
++--
++-- OAuthClient holds the statically registered confidential/public clients
++-- (browser extension, ChatGPT connector). There is no dynamic client
++-- registration: only these rows may obtain authorization codes.
++-- OAuthRefreshToken stores SHA-256 digests of opaque refresh tokens; the raw
++-- token value is never persisted.
++--
++-- CreateTable
++CREATE TABLE "OAuthClient" (
++    "id" UUID NOT NULL,
++    "clientId" TEXT NOT NULL,
++    "name" TEXT NOT NULL,
++    "redirectUris" TEXT[] NOT NULL,
++    "scopes" TEXT[] NOT NULL,
++    "isPublic" BOOLEAN NOT NULL DEFAULT true,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++
++    CONSTRAINT "OAuthClient_pkey" PRIMARY KEY ("id")
++);
++
++CREATE UNIQUE INDEX "OAuthClient_clientId_key" ON "OAuthClient"("clientId");
++
++-- CreateTable
++CREATE TABLE "OAuthRefreshToken" (
++    "id" UUID NOT NULL,
++    "tokenHash" TEXT NOT NULL,
++    "userId" UUID NOT NULL,
++    "clientId" TEXT NOT NULL,
++    "scopes" TEXT[] NOT NULL,
++    "expiresAt" TIMESTAMP(3) NOT NULL,
++    "revokedAt" TIMESTAMP(3),
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++
++    CONSTRAINT "OAuthRefreshToken_pkey" PRIMARY KEY ("id"),
++    CONSTRAINT "OAuthRefreshToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
++);
++
++CREATE UNIQUE INDEX "OAuthRefreshToken_tokenHash_key" ON "OAuthRefreshToken"("tokenHash");
++CREATE INDEX "OAuthRefreshToken_userId_idx" ON "OAuthRefreshToken"("userId");
++CREATE INDEX "OAuthRefreshToken_expiresAt_idx" ON "OAuthRefreshToken"("expiresAt");
++
++-- Seed the two statically registered clients. Redirect URIs are exact-match
++-- only; the authorization server rejects anything else.
++INSERT INTO "OAuthClient" ("id", "clientId", "name", "redirectUris", "scopes", "isPublic")
++VALUES
++    (
++        '10000000-0000-4000-8000-000000000101',
++        'ringee-extension',
++        'Ringee Browser Extension',
++        ARRAY['https://ringee-extension.chromiumapp.org/oauth/callback'],
++        ARRAY['ringee:use'],
++        true
++    ),
++    (
++        '10000000-0000-4000-8000-000000000102',
++        'ringee-chatgpt',
++        'Ringee ChatGPT Connector',
++        ARRAY['https://chatgpt.com/connector/oauth/callback'],
++        ARRAY['ringee:use'],
++        true
++    )
++ON CONFLICT ("clientId") DO NOTHING;
