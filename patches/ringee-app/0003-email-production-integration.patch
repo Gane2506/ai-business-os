@@ -23441,7 +23441,7 @@ index 0000000..3398e33
 +  constructor(
 +    private readonly redis: RedisService,
 +    private readonly clients: OAuthClientRepository,
-+    private readonly refreshTokens: OAuthRefreshTokenRepository,
++    private readonly refreshTokenRepository: OAuthRefreshTokenRepository,
 +    private readonly users: UserRepository,
 +  ) {}
 +
@@ -23553,7 +23553,7 @@ index 0000000..3398e33
 +  }): Promise<OAuthTokens | null> {
 +    if (!CODE_PATTERN.test(input.refreshToken)) return null;
 +    const hash = sha256hex(input.refreshToken);
-+    const row = await this.refreshTokens.findByTokenHash(hash);
++    const row = await this.refreshTokenRepository.findByTokenHash(hash);
 +    if (
 +      !row ||
 +      row.clientId !== input.clientId ||
@@ -23563,7 +23563,7 @@ index 0000000..3398e33
 +      return null;
 +    }
 +    if (!(await this.isUserActive(row.userId))) return null;
-+    await this.refreshTokens.revokeByTokenHash(hash);
++    await this.refreshTokenRepository.revokeByTokenHash(hash);
 +    return this.mintTokens(row.userId, row.clientId, row.scopes);
 +  }
 +
@@ -23576,7 +23576,7 @@ index 0000000..3398e33
 +  async revoke(token: string): Promise<void> {
 +    // Refresh token: revoke the stored row.
 +    if (CODE_PATTERN.test(token)) {
-+      await this.refreshTokens.revokeByTokenHash(sha256hex(token));
++      await this.refreshTokenRepository.revokeByTokenHash(sha256hex(token));
 +    }
 +    // Access token: deny its JTI for the remainder of its lifetime.
 +    const verified = this.verifyJwt(token, null);
@@ -23645,7 +23645,7 @@ index 0000000..3398e33
 +      this.jwtSecret(),
 +    );
 +    const refreshToken = randomBytes(32).toString("base64url");
-+    await this.refreshTokens.create({
++    await this.refreshTokenRepository.create({
 +      tokenHash: sha256hex(refreshToken),
 +      userId,
 +      clientId,

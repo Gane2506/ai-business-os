@@ -7,7 +7,7 @@
       "patches": [
         {
           "path": "patches/ringee-app/0003-email-production-integration.patch",
-          "sha256": "ccd0c967cfe58aa1f4a72492570e1407c0d2cc92108d66a8db99b34137b49804",
+          "sha256": "49509f86c4515a2ed3a28a1a4167e2a4cb9d4aa5c2a60563b288c2d9562f158e",
           "purpose": "Cumulative SES/OpenRouter foundation, dormant Better Auth schema, runtime/principal, frontend facade, auth provisioning and org lifecycle"
         }
       ]
