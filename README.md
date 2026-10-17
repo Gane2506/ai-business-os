@@ -1,9 +1,12 @@
 # AI Business OS
 
-**Start here:** [Complete implementation handoff (2026-10-15)](docs/implementation/HANDOFF.md) · [Prompt for the next AI](docs/implementation/AI_CONTINUATION_PROMPT.md) · [Open authentication application stage, PR 9](https://github.com/Gane2506/ai-business-os/pull/9).
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Private integration repository: [Gane2506/ai-business-os](https://github.com/Gane2506/ai-business-os).
-This repository versions our integration code, deployment tooling, source pins,
+**Start here:** [Self-hosting guide](docs/deployment/self-hosting.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
+
+Open-source business platform integrating Twenty (CRM), Ringee (calling and
+communications), and Mautic (marketing) with shared authentication.
+This repository versions the integration code, deployment tooling, source pins,
 and cumulative source patches. The large upstream checkouts and generated
 workspaces are reconstructed from those pins and patches instead of copied
 into Git. Credentials, dependencies, and local database files are excluded.
